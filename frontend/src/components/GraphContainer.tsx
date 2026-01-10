@@ -6,13 +6,8 @@ import ReactFlow, {
   MiniMap,
   Controls,
   Background,
-  Node,
-  Edge,
-  NodeChange,
-  EdgeChange,
 } from "react-flow-renderer";
 import { NodePanel } from "./NodePanel";
-import { MyNodeData } from "../types/MyNodeData";
 
 export const GraphContainer: React.FC = () => {
   const {
@@ -22,13 +17,13 @@ export const GraphContainer: React.FC = () => {
     selectedNodeId,
     setNodes,
     setEdges,
-    setNodesMap,
     setSelectedNodeId,
-    addNode,
     deleteNode,
+    handleNodesDelete,
     updateNodeColor,
     toggleChildren,
     addLegalMovesFromApi,
+    onNodesChange,
     saveGraph,
   } = useGraphLogic(
     "http://127.0.0.1:8000/load_graph",
@@ -56,25 +51,6 @@ export const GraphContainer: React.FC = () => {
     );
   }, [nodesMap, BoardComponent, setNodes]);
 
-  const handleNodesDelete = (deletedNodes: Node[]) => {
-    deletedNodes.forEach((node) => {
-      deleteNode(node.id);
-    });
-  };
-  const onNodesChange = (changes: NodeChange[]) => {
-    setNodes((nds) => {
-      const updatedNodes = applyNodeChanges(changes, nds);
-      // nodesMap の position も更新
-      setNodesMap((prev) => {
-        const newMap = { ...prev };
-        updatedNodes.forEach((n) => {
-          if (newMap[n.id]) newMap[n.id].position = n.position;
-        });
-        return newMap;
-      });
-      return updatedNodes;
-    });
-  };
   return (
     <ReactFlowProvider>
       <div style={{ display: "flex", height: "100vh" }}>

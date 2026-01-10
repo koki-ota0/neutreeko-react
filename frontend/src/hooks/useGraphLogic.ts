@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Node, Edge } from "react-flow-renderer";
+import { Node, Edge, NodeChange, applyNodeChanges } from "react-flow-renderer";
 import { MyNodeData } from "../types/MyNodeData";
 
 let idCounter = 0;
@@ -156,6 +156,11 @@ export const useGraphLogic = (loadUrl: string, saveUrl: string) => {
 
     if (selectedNodeId === nodeId) setSelectedNodeId(null);
   };
+  const handleNodesDelete = (deletedNodes: Node[]) => {
+    deletedNodes.forEach((node) => {
+      deleteNode(node.id);
+    });
+  };
 
   // ===== ノード色変更 =====
   const updateNodeColor = (color: string, nodeId?: string) => {
@@ -244,6 +249,21 @@ export const useGraphLogic = (loadUrl: string, saveUrl: string) => {
     }
   };
 
+  const onNodesChange = (changes: NodeChange[]) => {
+    setNodes((nds) => {
+      const updatedNodes = applyNodeChanges(changes, nds);
+      // nodesMap の position も更新
+      setNodesMap((prev) => {
+        const newMap = { ...prev };
+        updatedNodes.forEach((n) => {
+          if (newMap[n.id]) newMap[n.id].position = n.position;
+        });
+        return newMap;
+      });
+      return updatedNodes;
+    });
+  };
+
   // ===== 保存 =====
   const saveGraph = async () => {
     const payload = { nodes, edges, nodesMap, selectedNodeId };
@@ -273,9 +293,11 @@ export const useGraphLogic = (loadUrl: string, saveUrl: string) => {
     getDescendants,
     addNode,
     deleteNode,
+    handleNodesDelete,
     updateNodeColor,
     toggleChildren,
     addLegalMovesFromApi,
+    onNodesChange,
     saveGraph,
   };
 };
