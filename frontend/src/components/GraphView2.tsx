@@ -1,6 +1,5 @@
 // GraphView.tsx
 import React from "react";
-import { useState } from "react";
 import ReactFlow, {
   ReactFlowProvider,
   MiniMap,
@@ -19,6 +18,7 @@ interface GraphViewProps {
   edges: Edge[];
   nodesMap: { [key: string]: MyNodeData };
   selectedNodeId: string | null;
+  boardComponent: React.ComponentType<{ board: any; color?: string }>;
   onNodesChange: (changes: NodeChange[]) => void;
   onEdgesChange: (changes: EdgeChange[]) => void;
   onNodeClick: (event: React.MouseEvent, node: Node) => void;
@@ -34,6 +34,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
   edges,
   nodesMap,
   selectedNodeId,
+  boardComponent,
   onNodesChange,
   onEdgesChange,
   onNodeClick,
@@ -48,7 +49,6 @@ export const GraphView: React.FC<GraphViewProps> = ({
       handleDeleteNode(node.id);
     });
   };
-  const [searchQuery, setSearchQuery] = useState("");
 
   return (
     <ReactFlowProvider>
@@ -74,6 +74,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
           {selectedNodeId && nodesMap[selectedNodeId] && (
             <NodePanel
               node={nodesMap[selectedNodeId]}
+              boardComponent={boardComponent}
               addLegalMoves={handleAddLegalMovesFromApi}
               deleteNode={() => handleDeleteNode(selectedNodeId)}
               updateNodeColor={updateNodeColor}

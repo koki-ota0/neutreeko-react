@@ -1,10 +1,10 @@
 // NodePanel.tsx
 import React from "react";
 import { MyNodeData } from "../types/MyNodeData";
-import { NeutreekoBoardNode } from "./NeutreekoBoardNode";
 
 interface NodePanelProps {
   node: MyNodeData & { color?: string };
+  boardComponent: React.ComponentType<{ board: any; color?: string }>;
   addLegalMoves: () => void;
   deleteNode: () => void;
   updateNodeColor: (color: string) => void;
@@ -14,6 +14,7 @@ interface NodePanelProps {
 
 export const NodePanel: React.FC<NodePanelProps> = ({
   node,
+  boardComponent: BoardComponent,
   addLegalMoves,
   deleteNode,
   updateNodeColor,
@@ -37,7 +38,7 @@ export const NodePanel: React.FC<NodePanelProps> = ({
         <p>Node ID: {node.id}</p>
       </div>
       <div style={{ marginTop: 10 }}>
-        <NeutreekoBoardNode board={node.board} />
+        <BoardComponent board={node.board} color={node.color} />
       </div>
 
       <div style={{ marginTop: 10 }}>

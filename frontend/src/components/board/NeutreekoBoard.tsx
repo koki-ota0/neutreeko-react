@@ -1,13 +1,13 @@
 import React from "react";
 
-type NeutreekoBoardNodeProps = {
+type NeutreekoBoardProps = {
   board: string[][];
   color?: string;
 };
 
 const BOARD_SIZE = 5;
 
-export const NeutreekoBoardNode: React.FC<NeutreekoBoardNodeProps> = ({
+export const NeutreekoBoard: React.FC<NeutreekoBoardProps> = ({
   board,
   color,
 }) => {
