@@ -17,6 +17,9 @@ app.add_middleware(
 )
 
 # ----------------- 共通定数 -----------------
+EMPTY = "."
+BLACK = "B"
+WHITE = "W"
 DIRECTIONS_8 = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
 DIRECTIONS_4 = [(-1, 0), (1, 0), (0, -1), (0, 1)]  # S用
 
@@ -159,7 +162,11 @@ def check_neutreeko_win(board: List[List[str]], player: str) -> bool:
                     rr, cc = r, c
                     count = 0
                     for _ in range(3):
-                        if is_inside(rr, cc, board) and board[rr][cc] == player:
+                        if (
+                            0 <= rr < BOARD_SIZE
+                            and 0 <= cc < BOARD_SIZE
+                            and board[rr][cc] == player
+                        ):
                             count += 1
                             rr += dr
                             cc += dc
@@ -168,50 +175,80 @@ def check_neutreeko_win(board: List[List[str]], player: str) -> bool:
     return False
 
 
-def opponent_moves_lead_to_win(board, opponent):
+def opponent_moves_lead_to_win(board: list[list[str]], opponent: str) -> bool:
+    """相手が次の手で勝利する手があるか"""
     BOARD_SIZE = len(board)
     for r in range(BOARD_SIZE):
         for c in range(BOARD_SIZE):
             if board[r][c] == opponent:
                 for dr, dc in DIRECTIONS_8:
                     nr, nc = r + dr, c + dc
-                    while is_inside(nr, nc, board) and board[nr][nc] == ".":
+                    while (
+                        0 <= nr < BOARD_SIZE
+                        and 0 <= nc < BOARD_SIZE
+                        and board[nr][nc] == EMPTY
+                    ):
                         nr += dr
                         nc += dc
                     end_r, end_c = nr - dr, nc - dc
                     if (end_r, end_c) != (r, c):
+                        # 仮に相手がこの手を打った盤面
                         new_board = [row[:] for row in board]
                         new_board[end_r][end_c] = opponent
-                        new_board[r][c] = "."
+                        new_board[r][c] = EMPTY
                         if check_neutreeko_win(new_board, opponent):
                             return True
     return False
 
 
+def board_move_key(
+    r1: int, c1: int, r2: int, c2: int, BOARD_SIZE
+) -> Tuple[int, int, int, int]:
+    """左右対称を考慮したキー生成"""
+    # 左右反転後の列は BOARD_SIZE-1-c
+    mirror = (r1, BOARD_SIZE - 1 - c1, r2, BOARD_SIZE - 1 - c2)
+    normal = (r1, c1, r2, c2)
+    # 小さい方をキーとして使う
+    return min(normal, mirror)
+
+
 # ----------------- Legal Moves -----------------
 @app.post("/legal_moves/neutreeko", response_model=MoveResponse)
-def legal_moves_neutreeko(req: NeutreekoMoveRequest):
+def legal_moves(req: NeutreekoMoveRequest):
+    BOARD_SIZE = len(req.board)
     board = req.board
     player = req.player
     moves = []
+    seen: Set[Tuple[int, int, int, int]] = set()
+
     opponent = "W" if player == "B" else "B"
-    BOARD_SIZE = len(board)
 
     for r in range(BOARD_SIZE):
         for c in range(BOARD_SIZE):
             if board[r][c] == player:
                 for dr, dc in DIRECTIONS_8:
                     nr, nc = r + dr, c + dc
-                    while is_inside(nr, nc, board) and board[nr][nc] == ".":
+                    while (
+                        0 <= nr < BOARD_SIZE
+                        and 0 <= nc < BOARD_SIZE
+                        and board[nr][nc] == EMPTY
+                    ):
                         nr += dr
                         nc += dc
                     end_r, end_c = nr - dr, nc - dc
                     if (end_r, end_c) != (r, c):
+                        # 仮にこの手を打った盤面
                         new_board = [row[:] for row in board]
                         new_board[end_r][end_c] = player
-                        new_board[r][c] = "."
+                        new_board[r][c] = EMPTY
+
+                        # 相手がこの後最善で勝てるか
                         if not opponent_moves_lead_to_win(new_board, opponent):
-                            moves.append([r, c, end_r, end_c])
+                            key = board_move_key(r, c, end_r, end_c, BOARD_SIZE)
+                            if key not in seen:
+                                seen.add(key)
+                                moves.append([r, c, end_r, end_c])
+
     return {"moves": moves}
 
 

@@ -4,7 +4,7 @@ import { NeutreekoBoard } from "./components/board/NeutreekoBoard";
 import { PyrgaBoard } from "./components/board/PyrgaBoard";
 
 const App: React.FC = () => {
-  const [gameType, setGameType] = useState<"neutreeko" | "pyrga">("pyrga");
+  const [gameType, setGameType] = useState<"neutreeko" | "pyrga">("neutreeko");
 
   const BoardComponent = gameType === "neutreeko" ? NeutreekoBoard : PyrgaBoard;
 
