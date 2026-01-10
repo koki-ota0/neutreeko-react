@@ -61,6 +61,20 @@ export const GraphContainer: React.FC = () => {
       deleteNode(node.id);
     });
   };
+  const onNodesChange = (changes: NodeChange[]) => {
+    setNodes((nds) => {
+      const updatedNodes = applyNodeChanges(changes, nds);
+      // nodesMap の position も更新
+      setNodesMap((prev) => {
+        const newMap = { ...prev };
+        updatedNodes.forEach((n) => {
+          if (newMap[n.id]) newMap[n.id].position = n.position;
+        });
+        return newMap;
+      });
+      return updatedNodes;
+    });
+  };
   return (
     <ReactFlowProvider>
       <div style={{ display: "flex", height: "100vh" }}>
@@ -68,12 +82,7 @@ export const GraphContainer: React.FC = () => {
           <ReactFlow
             nodes={nodes.filter((n) => !n.hidden)}
             edges={edges.filter((e) => !e.hidden)}
-            onNodesChange={(changes) =>
-              setNodes((nds) => {
-                const updated = [...nds];
-                return updated;
-              })
-            }
+            onNodesChange={onNodesChange}
             onEdgesChange={(changes) => setEdges((eds) => [...eds])}
             onNodeClick={(e, node) => {
               setSelectedNodeId(node.id);
