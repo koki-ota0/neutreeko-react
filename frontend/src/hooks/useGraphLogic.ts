@@ -202,9 +202,22 @@ export const useGraphLogic = (gameType: string) => {
       const moves: number[][] = data.moves;
 
       if (moves.length === 0) {
-        updateNodeColor("#ff99ff"); // no moves
-        const parentId = node.parentId;
-        if (parentId) updateNodeColor("#ffff99", parentId);
+        updateNodeColor("#ff99ff");
+        // 親ノードの色も変更
+        const parentId = nodesMap[selectedNodeId]?.parentId;
+        const parent = parentId ? nodesMap[parentId] : null;
+
+        if (parentId && parent) {
+          updateNodeColor("#ffff99", parent.id);
+          // 兄弟削除
+          const siblings = [...parent.children];
+          siblings.forEach((siblingId) => {
+            if (siblingId !== selectedNodeId) {
+              deleteNode(siblingId);
+            }
+          });
+          toggleChildren(parentId);
+        }
         return;
       }
 

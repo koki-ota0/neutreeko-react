@@ -24,6 +24,7 @@ export const NodePanel: React.FC<NodePanelProps> = ({
   const colors = [
     "#ffffff",
     "#cccccc", // またルート見えず
+    "#ffcc99", // ループノード
     "#99ff99", // プレイ中のノード
     "#ff9999", // 選ばない方がいい
     "#9999ff", // ほとんど勝ち
