@@ -5,11 +5,14 @@ import { MyNodeData } from "../types/MyNodeData";
 let idCounter = 0;
 const getId = () => `node_${idCounter++}`;
 
-export const useGraphLogic = (loadUrl: string, saveUrl: string) => {
+export const useGraphLogic = (gameType: string) => {
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [nodesMap, setNodesMap] = useState<{ [key: string]: MyNodeData }>({});
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [lastMove, setLastMove] = useState<[number, number, string] | null>(
+    null
+  ); // Pyrgaのみ使用
 
   // ===== ユーティリティ =====
   const getDescendants = (nodeId: string) => {
@@ -25,36 +28,11 @@ export const useGraphLogic = (loadUrl: string, saveUrl: string) => {
 
   const getChildren = (nodeId: string) => nodesMap[nodeId]?.children || [];
 
-  // ===== ルートノード作成 =====
-  // const createRootNode = () => {
-  //   const rootId = getId();
-  //   const rootBoard = [
-  //     [".", "W", ".", "W", "."],
-  //     [".", ".", "B", ".", "."],
-  //     [".", ".", ".", ".", "."],
-  //     [".", ".", "W", ".", "."],
-  //     [".", "B", ".", "B", "."],
-  //   ];
-  //   const rootNode: MyNodeData = {
-  //     id: rootId,
-  //     board: rootBoard,
-  //     currentPlayer: "B",
-  //     children: [],
-  //     position: { x: 0, y: 0 },
-  //   };
-
-  //   setNodesMap({ [rootId]: rootNode });
-  //   setNodes([
-  //     { id: rootId, data: { label: null }, position: rootNode.position },
-  //   ]);
-  //   setEdges([]);
-  //   setSelectedNodeId(rootId);
-  // };
-
-  // ===== APIからグラフロード =====
   const loadGraphFromApi = async () => {
     try {
-      const res = await fetch(loadUrl);
+      const res = await fetch(
+        `http://127.0.0.1:8000/load_graph?game_type=${gameType}`
+      );
       if (!res.ok) throw new Error("Failed to fetch graph");
       const data = await res.json();
 
@@ -70,13 +48,12 @@ export const useGraphLogic = (loadUrl: string, saveUrl: string) => {
       idCounter = maxId + 1;
     } catch (e) {
       console.error(e);
-      // createRootNode();
     }
   };
 
   useEffect(() => {
     loadGraphFromApi();
-  }, []);
+  }, [gameType]);
 
   // ===== ノード追加 =====
   const addNode = (
@@ -206,12 +183,18 @@ export const useGraphLogic = (loadUrl: string, saveUrl: string) => {
   const addLegalMovesFromApi = async () => {
     if (!selectedNodeId) return;
     const node = nodesMap[selectedNodeId];
+    const body: any = {
+      board: node.board,
+      player: node.currentPlayer,
+    };
+    if (gameType === "pyrga") body.last_move = lastMove;
 
     try {
-      const res = await fetch("http://127.0.0.1:8000/legal_moves", {
+      console.log(JSON.stringify(body));
+      const res = await fetch(`http://127.0.0.1:8000/legal_moves/${gameType}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ board: node.board, player: node.currentPlayer }),
+        body: JSON.stringify(body),
       });
 
       if (!res.ok) throw new Error("Failed to fetch legal moves");
@@ -266,9 +249,14 @@ export const useGraphLogic = (loadUrl: string, saveUrl: string) => {
 
   // ===== 保存 =====
   const saveGraph = async () => {
-    const payload = { nodes, edges, nodesMap, selectedNodeId };
+    const payload = {
+      nodes: nodes.map((n) => ({ id: n.id, position: n.position })),
+      edges,
+      nodesMap,
+      selectedNodeId,
+    };
     try {
-      await fetch(saveUrl, {
+      await fetch(`http://127.0.0.1:8000/save_graph?game_type=${gameType}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -289,6 +277,8 @@ export const useGraphLogic = (loadUrl: string, saveUrl: string) => {
     setEdges,
     setNodesMap,
     setSelectedNodeId,
+    lastMove,
+    setLastMove,
     getChildren,
     getDescendants,
     addNode,

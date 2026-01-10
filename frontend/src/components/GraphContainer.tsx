@@ -1,5 +1,4 @@
 import React, { useEffect } from "react";
-import { NeutreekoBoard } from "./board/NeutreekoBoard";
 import { useGraphLogic } from "../hooks/useGraphLogic";
 import ReactFlow, {
   ReactFlowProvider,
@@ -9,7 +8,15 @@ import ReactFlow, {
 } from "react-flow-renderer";
 import { NodePanel } from "./NodePanel";
 
-export const GraphContainer: React.FC = () => {
+interface GraphContainerProps {
+  gameType: "neutreeko" | "pyrga";
+  BoardComponent: React.ComponentType<{ board: any; color?: string }>;
+}
+
+export const GraphContainer: React.FC<GraphContainerProps> = ({
+  gameType,
+  BoardComponent,
+}) => {
   const {
     nodes,
     edges,
@@ -25,12 +32,9 @@ export const GraphContainer: React.FC = () => {
     addLegalMovesFromApi,
     onNodesChange,
     saveGraph,
-  } = useGraphLogic(
-    "http://127.0.0.1:8000/load_graph",
-    "http://127.0.0.1:8000/save_graph"
-  );
-
-  const BoardComponent = NeutreekoBoard; // ここで PyrgaBoard に切り替え可能
+    lastMove,
+    setLastMove,
+  } = useGraphLogic(gameType);
 
   useEffect(() => {
     setNodes((prevNodes) =>
@@ -49,7 +53,7 @@ export const GraphContainer: React.FC = () => {
         };
       })
     );
-  }, [nodesMap, BoardComponent, setNodes]);
+  }, [nodesMap, BoardComponent, setNodes, gameType]);
 
   return (
     <ReactFlowProvider>

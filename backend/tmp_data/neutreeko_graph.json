@@ -7573,7 +7573,8 @@
         "x": 1054.5840359419194,
         "y": 267.4083502325348
       },
-      "parentId": "node_0"
+      "parentId": "node_0",
+      "color": "#ffffff"
     },
     "node_14": {
       "id": "node_14",
@@ -35331,5 +35332,5 @@
       }
     }
   },
-  "selectedNodeId": "node_9"
+  "selectedNodeId": "node_10"
 }

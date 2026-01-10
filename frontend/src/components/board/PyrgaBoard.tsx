@@ -1,23 +1,23 @@
-// frontend/src/components/boards/pyrga/PyrgaBoard.tsx
-import React from "react";
+// frontend/src/components/board/PyrgaBoard.tsx
+import React, { JSX } from "react";
+import { PyrgaCell, PyrgaPiece } from "../../types/pyrga";
 
-export type PyrgaPiece = "S" | "T" | "C"; // Square, Triangle, Cylinder
-
-export type PyrgaCell = PyrgaPiece[]; // 1マスに複数ピースを置ける
-
+// Props
 export interface PyrgaBoardProps {
   board: PyrgaCell[][]; // 4x4
   color?: string; // マス背景色
-  cellSize?: number; // 1マスのサイズ（px）
+  lastMove?: { row: number; col: number; piece: PyrgaPiece }; // 最後の手
+  cellSize?: number; // px
 }
-
-const BOARD_SIZE = 4;
 
 export const PyrgaBoard: React.FC<PyrgaBoardProps> = ({
   board,
   color = "#eee",
-  cellSize = 30,
+  lastMove,
+  cellSize = 20,
 }) => {
+  const BOARD_SIZE = board.length;
+
   return (
     <div
       style={{
@@ -25,50 +25,81 @@ export const PyrgaBoard: React.FC<PyrgaBoardProps> = ({
         gridTemplateColumns: `repeat(${BOARD_SIZE}, ${cellSize}px)`,
         gridTemplateRows: `repeat(${BOARD_SIZE}, ${cellSize}px)`,
         gap: 2,
-        backgroundColor: "#333",
+        backgroundColor: "#fff",
+        border: "2px solid #333",
         padding: 4,
       }}
     >
-      {board.flatMap((row, rIdx) =>
-        row.map((cell, cIdx) => (
-          <div
-            key={`${rIdx}-${cIdx}`}
-            style={{
-              width: cellSize,
-              height: cellSize,
-              backgroundColor: color,
-              display: "flex",
-              flexDirection: "column",
-              justifyContent: "center",
-              alignItems: "center",
-              border: "1px solid #333",
-            }}
-          >
-            {cell.map((piece, idx) => {
-              const pieceColor =
-                piece === "S" ? "black" : piece === "T" ? "red" : "blue";
-              return (
-                <div
-                  key={idx}
-                  style={{
-                    width: cellSize / 2,
-                    height: cellSize / 2,
-                    backgroundColor: pieceColor,
-                    borderRadius: piece === "C" ? "50%" : "0%", // Cylinderは丸
-                    display: "flex",
-                    justifyContent: "center",
-                    alignItems: "center",
-                    fontSize: 10,
-                    color: "white",
-                  }}
-                >
-                  {piece === "T" ? "▲" : piece === "S" ? "■" : "●"}
-                </div>
-              );
-            })}
-          </div>
-        ))
-      )}
+      {board.flatMap((row, rIdx) => {
+        const rowElements: JSX.Element[] = [];
+        for (let cIdx = 0; cIdx < row.length; cIdx++) {
+          const cell = row[cIdx];
+          const cellElements: JSX.Element[] = [];
+
+          // cellが配列でない場合は空に変換
+          const pieces: PyrgaPiece[] = Array.isArray(cell) ? cell : [];
+
+          for (let i = 0; i < pieces.length; i++) {
+            const piece = pieces[i];
+            const isLastMove =
+              lastMove &&
+              lastMove.row === rIdx &&
+              lastMove.col === cIdx &&
+              lastMove.piece === piece;
+
+            const bgColor =
+              piece.type === "S"
+                ? piece.player === "B"
+                  ? "black"
+                  : "white"
+                : piece.type === "T"
+                ? piece.player === "B"
+                  ? "darkred"
+                  : "pink"
+                : piece.player === "B"
+                ? "blue"
+                : "lightblue";
+
+            cellElements.push(
+              <div
+                key={i}
+                style={{
+                  width: cellSize / 2,
+                  height: cellSize / 2,
+                  backgroundColor: bgColor,
+                  borderRadius: piece.type === "C" ? "50%" : "0%",
+                  border: isLastMove ? "2px solid yellow" : "1px solid #555",
+                  display: "flex",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  fontSize: 12,
+                  color: piece.player === "B" ? "white" : "black",
+                }}
+              >
+                {piece.type === "S" ? "■" : piece.type === "T" ? "▲" : "●"}
+              </div>
+            );
+          }
+
+          rowElements.push(
+            <div
+              key={`${rIdx}-${cIdx}`}
+              style={{
+                width: cellSize,
+                height: cellSize,
+                backgroundColor: color,
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "center",
+                alignItems: "center",
+              }}
+            >
+              {cellElements}
+            </div>
+          );
+        }
+        return rowElements;
+      })}
     </div>
   );
 };

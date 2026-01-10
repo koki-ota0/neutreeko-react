@@ -1,0 +1,447 @@
+// import React, { useState, useEffect } from "react";
+// import { GraphView } from "./components/GraphView";
+// import {
+//   Node,
+//   Edge,
+//   applyNodeChanges,
+//   applyEdgeChanges,
+//   NodeChange,
+//   EdgeChange,
+// } from "react-flow-renderer";
+// import { MyNodeData } from "./types/MyNodeData";
+// import { NeutreekoBoardNode } from "./components/NeutreekoBoardNode";
+
+// let id = 0;
+// const getId = () => `node_${id++}`;
+
+// function getDescendants(
+//   nodeId: string,
+//   map: { [key: string]: MyNodeData }
+// ): string[] {
+//   const result: string[] = [];
+//   const queue = [...map[nodeId].children];
+
+//   while (queue.length) {
+//     const childId = queue.shift()!;
+//     result.push(childId);
+//     queue.push(...map[childId].children);
+//   }
+//   return result;
+// }
+// function getChildren(
+//   nodeId: string,
+//   map: { [key: string]: MyNodeData }
+// ): string[] {
+//   return map[nodeId].children;
+// }
+
+// export default function App() {
+//   const [nodes, setNodes] = useState<Node[]>([]);
+//   const [edges, setEdges] = useState<Edge[]>([]);
+//   const [nodesMap, setNodesMap] = useState<{ [key: string]: MyNodeData }>({});
+//   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+
+//   useEffect(() => {
+//     console.log("nodesMap changed, updating nodes...");
+//     setNodes((prev) =>
+//       prev.map((n) => {
+//         const mapNode = nodesMap[n.id];
+//         if (!mapNode) return n;
+//         return {
+//           ...n,
+//           data: {
+//             ...n.data,
+//             label: (
+//               <NeutreekoBoardNode board={mapNode.board} color={mapNode.color} />
+//             ),
+//           },
+//           hidden: mapNode.hidden ?? false,
+//         };
+//       })
+//     );
+//   }, [nodesMap]);
+
+//   // ===== 初期ロード =====
+//   // ===== API経由でロード =====
+//   const loadGraphFromApi = async () => {
+//     console.log("Loading graph from API...");
+//     try {
+//       const res = await fetch("http://127.0.0.1:8000/load_graph");
+//       if (!res.ok) throw new Error("Failed to fetch graph");
+//       const data = await res.json();
+
+//       setNodesMap(data.nodesMap || {});
+
+//       const convertedNodes: Node[] = (data.nodes || []).map((n: any) => {
+//         const nodeData = data.nodesMap?.[n.id];
+//         return {
+//           id: n.id,
+//           position: nodeData?.position ||
+//             n.position || { x: Math.random() * 400, y: Math.random() * 400 },
+//           data: {
+//             label: nodeData ? (
+//               <NeutreekoBoardNode
+//                 board={nodeData.board}
+//                 color={nodeData.color}
+//               />
+//             ) : (
+//               n.data?.label
+//             ),
+//           },
+//           hiddenChildren: nodeData?.hiddenChildren,
+//           hidden: nodeData?.hidden || false,
+//         };
+//       });
+
+//       setNodes(convertedNodes);
+//       setEdges(data.edges || []);
+//       setSelectedNodeId(data.selectedNodeId || null);
+
+//       // idカウンター調整
+//       const maxId = convertedNodes.reduce((max, n) => {
+//         const num = parseInt(n.id.replace("node_", ""));
+//         return isNaN(num) ? max : Math.max(max, num);
+//       }, 0);
+//       id = maxId + 1;
+//     } catch (e) {
+//       console.error("Failed to load graph", e);
+//       createRootNode();
+//     }
+//   };
+
+//   const createRootNode = () => {
+//     console.log("Creating root node...");
+//     const rootId = getId();
+//     const rootBoard = [
+//       [".", "W", ".", "W", "."],
+//       [".", ".", "B", ".", "."],
+//       [".", ".", ".", ".", "."],
+//       [".", ".", "W", ".", "."],
+//       [".", "B", ".", "B", "."],
+//     ];
+//     const rootNode: MyNodeData = {
+//       id: rootId,
+//       board: rootBoard,
+//       currentPlayer: "B",
+//       children: [],
+//       position: { x: 0, y: 0 },
+//     };
+//     setNodesMap({ [rootId]: rootNode });
+//     setNodes([
+//       {
+//         id: rootId,
+//         data: {
+//           label: (
+//             <NeutreekoBoardNode board={rootBoard} color={rootNode.color} />
+//           ),
+//         },
+//         position: rootNode.position || { x: 0, y: 0 },
+//       },
+//     ]);
+//     setEdges([]);
+//     setSelectedNodeId(rootId);
+//   };
+
+//   useEffect(() => {
+//     loadGraphFromApi();
+//   }, []);
+
+//   // ===== ノード追加 =====
+//   const addNode = (
+//     parentId: string | null,
+//     board: string[][],
+//     currentPlayer: string,
+//     index: number,
+//     siblingCount: number
+//   ) => {
+//     console.log("Adding node:", parentId, board, currentPlayer);
+//     const newId = getId();
+//     const nodeData: MyNodeData = {
+//       id: newId,
+//       board,
+//       currentPlayer,
+//       parentId: parentId || undefined,
+//       children: [],
+//     };
+
+//     setNodesMap((prev) => {
+//       const updated = { ...prev, [newId]: nodeData };
+//       if (parentId && !updated[parentId].children.includes(newId)) {
+//         updated[parentId].children.push(newId);
+//       }
+//       return updated;
+//     });
+
+//     let position = { x: Math.random() * 400, y: Math.random() * 400 };
+//     if (parentId) {
+//       const parentNode = nodes.find((n) => n.id === parentId);
+//       if (parentNode) {
+//         const offset = 140;
+//         let tmp_x = parentNode.position.x;
+//         if (siblingCount !== 1) {
+//           tmp_x =
+//             parentNode.position.x + (index - (siblingCount - 1) / 2) * offset;
+//         }
+//         position = {
+//           x: tmp_x,
+//           y: parentNode.position.y + offset,
+//         };
+//       }
+//     }
+
+//     const newNode: Node = {
+//       id: newId,
+//       data: {
+//         label: <NeutreekoBoardNode board={board} color={nodeData?.color} />,
+//       },
+//       position,
+//     };
+
+//     setNodes((nds) => [...nds, newNode]);
+//     if (parentId) {
+//       const newEdge: Edge = {
+//         id: `e_${parentId}_${newId}`,
+//         source: parentId,
+//         target: newId,
+//       };
+//       setEdges((eds) => [...eds, newEdge]);
+//     }
+//   };
+
+//   // NodePanel で色を変更
+//   const updateNodeColor = (color: string, nodeId?: string) => {
+//     console.log("Updating node color:", color, nodeId);
+//     const targetNodeId = nodeId || selectedNodeId;
+//     if (!targetNodeId) {
+//       console.warn("No target node to update color");
+//       return;
+//     }
+
+//     setNodesMap((prev) => {
+//       const updated = { ...prev };
+//       updated[targetNodeId] = {
+//         ...updated[targetNodeId],
+//         color,
+//       };
+
+//       return updated;
+//     });
+//   };
+
+//   const toggleChildren = (nodeId: string) => {
+//     console.log("Toggling children for node:", nodeId);
+//     const target = nodesMap[nodeId];
+//     const hide = !target.hiddenChildren; // 子を非表示にするかどうか
+
+//     const descendants = getDescendants(nodeId, nodesMap);
+
+//     console.log("Descendants to toggle:", descendants);
+
+//     // nodesMap 更新（内部状態）
+//     setNodesMap((prev) => {
+//       const updated = { ...prev };
+//       updated[nodeId].hiddenChildren = hide;
+//       descendants.forEach((id) => {
+//         if (!updated[id]) return;
+
+//         // それぞれの親ノードの hiddenChildren 状態に合わせて子ノードを hidden にする
+//         const parentId = nodesMap[id].parentId;
+//         const parent = parentId
+//           ? Object.entries(nodesMap).find(([_, n]) => n.id === parentId)
+//           : null;
+//         if (parent && !hide) {
+//           const [, parentNode] = parent;
+//           updated[id].hidden = parentNode.hiddenChildren;
+//         } else {
+//           updated[id].hidden = hide;
+//         }
+//       });
+//       return updated;
+//     });
+
+//     // nodes (ReactFlow 用) 更新 → hidden を反映
+//     setNodes((prev) =>
+//       prev.map((n) => ({
+//         ...n,
+//         hidden: nodesMap[n.id]?.hidden ?? false,
+//       }))
+//     );
+
+//     // edges も hidden 反映
+//     setEdges((prev) =>
+//       prev.map((e) => ({
+//         ...e,
+//         hidden:
+//           (nodesMap[e.source]?.hidden ?? false) ||
+//           (nodesMap[e.target]?.hidden ?? false),
+//       }))
+//     );
+//   };
+
+//   const onNodesChange = (changes: NodeChange[]) => {
+//     setNodes((nds) => {
+//       const updatedNodes = applyNodeChanges(changes, nds);
+//       // nodesMap の position も更新
+//       setNodesMap((prev) => {
+//         const newMap = { ...prev };
+//         updatedNodes.forEach((n) => {
+//           if (newMap[n.id]) newMap[n.id].position = n.position;
+//         });
+//         return newMap;
+//       });
+//       return updatedNodes;
+//     });
+//   };
+
+//   const onEdgesChange = (changes: EdgeChange[]) =>
+//     setEdges((eds) => applyEdgeChanges(changes, eds));
+
+//   // ===== ノード選択 =====
+//   const onNodeClick = (e: React.MouseEvent, node: Node) => {
+//     setSelectedNodeId(node.id);
+//   };
+
+//   // ===== ノード削除 =====
+//   const handleDeleteNode = (nodeId: string, confirm?: boolean) => {
+//     // const ok =
+//     //   confirm !== undefined
+//     //     ? confirm
+//     //     : window.confirm(`ノード ${nodeId} を削除しますか？`);
+//     // if (!ok) return;
+
+//     console.log("Deleting node:", nodeId);
+//     for (const childId of getChildren(nodeId, nodesMap)) {
+//       handleDeleteNode(childId, true);
+//     }
+
+//     // 1. nodesMap から削除
+//     setNodesMap((prev) => {
+//       const updated = { ...prev };
+
+//       // 親の children から対象ノードを削除
+//       Object.values(updated).forEach((node) => {
+//         node.children = node.children.filter((cId) => cId !== nodeId);
+//       });
+
+//       // 自身のノード情報も削除
+//       delete updated[nodeId];
+
+//       return updated;
+//     });
+
+//     // 2. ReactFlow からノードとエッジを削除
+//     setNodes((nds) => nds.filter((n) => n.id !== nodeId));
+//     setEdges((eds) =>
+//       eds.filter((e) => e.source !== nodeId && e.target !== nodeId)
+//     );
+
+//     // 3. 選択中ノードなら deselect
+//     if (selectedNodeId === nodeId) setSelectedNodeId(null);
+//   };
+
+//   // ===== 全法的手の追加 =====
+//   const handleAddLegalMovesFromApi = async () => {
+//     console.log("Fetching legal moves from API...");
+//     if (!selectedNodeId) return;
+//     const node = nodesMap[selectedNodeId];
+
+//     try {
+//       const res = await fetch("http://127.0.0.1:8000/legal_moves", {
+//         method: "POST",
+//         headers: { "Content-Type": "application/json" },
+//         body: JSON.stringify({ board: node.board, player: node.currentPlayer }),
+//       });
+
+//       if (!res.ok) throw new Error("Failed to fetch legal moves");
+
+//       const data = await res.json();
+//       const moves: number[][] = data.moves;
+
+//       if (moves.length === 0) {
+//         console.log("No legal moves available.");
+//         // ノードの色を変更
+//         updateNodeColor("#ff99ff");
+//         // 親ノードの色も変更
+//         const parentId = nodesMap[selectedNodeId]?.parentId;
+//         const parent = parentId ? nodesMap[parentId] : null;
+
+//         if (parentId && parent) {
+//           updateNodeColor("#ffff99", parent.id);
+//           // 兄弟削除
+//           const siblings = [...parent.children];
+//           siblings.forEach((siblingId) => {
+//             if (siblingId !== selectedNodeId) {
+//               handleDeleteNode(siblingId, true);
+//             }
+//           });
+//           toggleChildren(parentId);
+//         }
+
+//         return;
+//       }
+
+//       let index = 0;
+//       moves.forEach(([r1, c1, r2, c2]) => {
+//         const newBoard = node.board.map((row, i) =>
+//           row.map((cell, j) =>
+//             i === r1 && j === c1
+//               ? "."
+//               : i === r2 && j === c2
+//               ? node.board[r1][c1]
+//               : cell
+//           )
+//         );
+//         addNode(
+//           selectedNodeId,
+//           newBoard,
+//           node.currentPlayer === "B" ? "W" : "B",
+//           index,
+//           moves.length
+//         );
+//         index++;
+//       });
+//     } catch (e) {
+//       console.error(e);
+//       alert("Failed to get legal moves from API");
+//     }
+//   };
+
+//   // ===== 保存ボタン =====
+//   const saveGraph = async () => {
+//     // 保存時に position を nodesMap にも含める
+//     const payload = {
+//       nodes: nodes.map((n) => ({ id: n.id, position: n.position })),
+//       edges,
+//       nodesMap, // position が更新済み
+//       selectedNodeId,
+//     };
+//     try {
+//       await fetch("http://127.0.0.1:8000/save_graph", {
+//         method: "POST",
+//         headers: { "Content-Type": "application/json" },
+//         body: JSON.stringify(payload),
+//       });
+//       console.log("Graph saved!");
+//     } catch (e) {
+//       console.error(e);
+//       alert("Failed to save graph");
+//     }
+//   };
+
+//   return (
+//     <GraphView
+//       nodes={nodes}
+//       edges={edges}
+//       nodesMap={nodesMap}
+//       selectedNodeId={selectedNodeId}
+//       onNodesChange={onNodesChange}
+//       onEdgesChange={onEdgesChange}
+//       onNodeClick={onNodeClick}
+//       handleDeleteNode={handleDeleteNode}
+//       handleAddLegalMovesFromApi={handleAddLegalMovesFromApi}
+//       updateNodeColor={updateNodeColor}
+//       toggleChildren={toggleChildren}
+//       saveGraph={saveGraph}
+//     />
+//   );
+// }
