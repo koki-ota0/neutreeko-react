@@ -26,11 +26,15 @@ export const GraphContainer: React.FC<GraphContainerProps> = ({
     setEdges,
     setSelectedNodeId,
     deleteNode,
+    hideNode,
     handleNodesDelete,
     updateNodeColor,
     toggleChildren,
     addLegalMovesFromApi,
     onNodesChange,
+    hideyellow,
+    deleteChildren,
+    showGreen,
     saveGraph,
     lastMove,
     setLastMove,
@@ -84,8 +88,12 @@ export const GraphContainer: React.FC<GraphContainerProps> = ({
               boardComponent={BoardComponent}
               addLegalMoves={addLegalMovesFromApi}
               deleteNode={() => deleteNode(selectedNodeId)}
+              hideNode={() => hideNode(selectedNodeId)}
               updateNodeColor={updateNodeColor}
               toggleChildren={toggleChildren}
+              hideyellow={hideyellow}
+              deleteChildren={deleteChildren}
+              showGreen={showGreen}
               saveGraph={saveGraph}
             />
           )}

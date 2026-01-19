@@ -201,15 +201,8 @@ def opponent_moves_lead_to_win(board: list[list[str]], opponent: str) -> bool:
     return False
 
 
-def board_move_key(
-    r1: int, c1: int, r2: int, c2: int, BOARD_SIZE
-) -> Tuple[int, int, int, int]:
-    """左右対称を考慮したキー生成"""
-    # 左右反転後の列は BOARD_SIZE-1-c
-    mirror = (r1, BOARD_SIZE - 1 - c1, r2, BOARD_SIZE - 1 - c2)
-    normal = (r1, c1, r2, c2)
-    # 小さい方をキーとして使う
-    return min(normal, mirror)
+def board_move_key(r1, c1, r2, c2):
+    return (r1, c1, r2, c2)
 
 
 # ----------------- Legal Moves -----------------
@@ -244,7 +237,7 @@ def legal_moves(req: NeutreekoMoveRequest):
 
                         # 相手がこの後最善で勝てるか
                         if not opponent_moves_lead_to_win(new_board, opponent):
-                            key = board_move_key(r, c, end_r, end_c, BOARD_SIZE)
+                            key = board_move_key(r, c, end_r, end_c)
                             if key not in seen:
                                 seen.add(key)
                                 moves.append([r, c, end_r, end_c])

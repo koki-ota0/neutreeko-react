@@ -7,8 +7,12 @@ interface NodePanelProps {
   boardComponent: React.ComponentType<{ board: any; color?: string }>;
   addLegalMoves: () => void;
   deleteNode: () => void;
+  hideNode: () => void;
   updateNodeColor: (color: string) => void;
   toggleChildren: (nodeId: string) => void;
+  hideyellow: () => void;
+  deleteChildren: (nodeId: string) => void;
+  showGreen: () => void;
   saveGraph: () => void;
 }
 
@@ -17,8 +21,12 @@ export const NodePanel: React.FC<NodePanelProps> = ({
   boardComponent: BoardComponent,
   addLegalMoves,
   deleteNode,
+  hideNode,
   updateNodeColor,
   toggleChildren,
+  hideyellow,
+  deleteChildren,
+  showGreen,
   saveGraph,
 }) => {
   const colors = [
@@ -26,6 +34,7 @@ export const NodePanel: React.FC<NodePanelProps> = ({
     "#cccccc", // またルート見えず
     "#ffcc99", // ループノード
     "#99ff99", // プレイ中のノード
+    "#11c101ff", // プレイ終了のノード
     "#ff9999", // 選ばない方がいい
     "#9999ff", // ほとんど勝ち
     "#ffff99", // 選んじゃダメ
@@ -49,6 +58,9 @@ export const NodePanel: React.FC<NodePanelProps> = ({
       <div style={{ marginTop: 10 }}>
         <button onClick={deleteNode}>Delete Node</button>
       </div>
+      <div style={{ marginTop: 10 }}>
+        <button onClick={hideNode}>Hide Node</button>
+      </div>
 
       <div style={{ marginTop: 10 }}>
         <label>Node Color: </label>
@@ -70,6 +82,18 @@ export const NodePanel: React.FC<NodePanelProps> = ({
       </div>
       <button onClick={() => toggleChildren(node.id)}>
         {node.hiddenChildren ? "Show Children" : "Hide Children"}
+      </button>
+      <button onClick={hideyellow} style={{ marginTop: "10px" }}>
+        Hide Yellow Nodes
+      </button>
+      <button
+        onClick={() => deleteChildren(node.id)}
+        style={{ marginTop: "10px" }}
+      >
+        Delete Children Nodes
+      </button>
+      <button onClick={() => showGreen()} style={{ marginTop: "10px" }}>
+        Show Green nodes
       </button>
       <button onClick={saveGraph} style={{ marginTop: "10px" }}>
         Save Graph
