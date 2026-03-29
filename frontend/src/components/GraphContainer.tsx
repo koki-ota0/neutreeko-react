@@ -37,8 +37,6 @@ export const GraphContainer: React.FC<GraphContainerProps> = ({
     deleteChildren,
     showGreen,
     saveGraph,
-    lastMove,
-    setLastMove,
   } = useGraphLogic(gameType);
 
   useEffect(() => {

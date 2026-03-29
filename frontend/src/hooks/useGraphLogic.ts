@@ -79,6 +79,7 @@ export const useGraphLogic = (gameType: string) => {
 
       setNodeIndex(idx);
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameType]);
 
   const addNode = (
@@ -449,14 +450,8 @@ export const useGraphLogic = (gameType: string) => {
     const level1 = [...(nodesMap[nodeId]?.children || [])];
 
     for (const childId of level1) {
-      // setSelectedNodeId(childId);
       console.log(childId);
       await addLegalMovesFromApi(childId, false);
-      const childNode = nodesMap[childId];
-      // if (childNode && childNode.color === "#ff99ff") {
-      //   console.log("stop", childId);
-      //   return;
-      // }
 
       const level2 = [...(nodesMap[childId]?.children || [])];
 
