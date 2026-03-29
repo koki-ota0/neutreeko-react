@@ -5,13 +5,15 @@ import { MyNodeData } from "../types/MyNodeData";
 let idCounter = 0;
 const getId = () => `node_${idCounter++}`;
 
+const API_URL = process.env.REACT_APP_API_URL || "http://127.0.0.1:8000";
+
 export const useGraphLogic = (gameType: string) => {
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [nodesMap, setNodesMap] = useState<{ [key: string]: MyNodeData }>({});
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [lastMove, setLastMove] = useState<[number, number, string] | null>(
-    null
+    null,
   ); // Pyrgaのみ使用
   const [nodeIndex, setNodeIndex] = useState<Record<string, string>>({});
   const keyFor = (board: string[][], player: string) =>
@@ -42,7 +44,7 @@ export const useGraphLogic = (gameType: string) => {
   const loadGraphFromApi = async () => {
     try {
       const res = await fetch(
-        `http://127.0.0.1:8000/load_graph?game_type=${gameType}`
+        `${API_URL}/load_graph?game_type=${gameType}`,
       );
       if (!res.ok) throw new Error("Failed to fetch graph");
       const data = await res.json();
@@ -85,7 +87,7 @@ export const useGraphLogic = (gameType: string) => {
     currentPlayer: string,
     index: number,
     siblingCount: number,
-    color?: string
+    color?: string,
   ) => {
     const key = keyFor(board, currentPlayer);
     const newId = getId();
@@ -164,7 +166,11 @@ export const useGraphLogic = (gameType: string) => {
   // ===== ノード削除 =====
   const deleteNode = (nodeId: string) => {
     const nodeColor = nodesMap[nodeId].color;
-    if (nodeColor === "#285294" || nodeColor === "#ffff99") {
+    if (
+      nodeColor === "#285294" ||
+      nodeColor === "#ffff99" ||
+      nodeColor === "#ff99ff"
+    ) {
       return;
     }
     // 子も再帰削除
@@ -174,7 +180,9 @@ export const useGraphLogic = (gameType: string) => {
       const updated = { ...prev };
       // 親の children 配列から除外
       Object.values(updated).forEach((n) => {
-        n.children = n.children.filter((cId) => cId !== nodeId);
+        if (n.children != null) {
+          n.children = n.children.filter((cId) => cId !== nodeId);
+        }
       });
       delete updated[nodeId];
       return updated;
@@ -182,7 +190,7 @@ export const useGraphLogic = (gameType: string) => {
 
     setNodes((nds) => nds.filter((n) => n.id !== nodeId));
     setEdges((eds) =>
-      eds.filter((e) => e.source !== nodeId && e.target !== nodeId)
+      eds.filter((e) => e.source !== nodeId && e.target !== nodeId),
     );
 
     if (selectedNodeId === nodeId) setSelectedNodeId(null);
@@ -211,6 +219,7 @@ export const useGraphLogic = (gameType: string) => {
     if (!children || children.length === 0) return;
 
     const blueChildren: string[] = [];
+    const yellowChildren: string[] = [];
     const deleteTargets: string[] = [];
 
     // 色判定して仕分け
@@ -218,8 +227,10 @@ export const useGraphLogic = (gameType: string) => {
       const childNode = nodesMap[childId];
       if (!childNode) return;
 
-      if (childNode.color === "#285294") {
+      if (childNode.color === "#285294" || childNode.color === "#ff99ff") {
         blueChildren.push(childId);
+      } else if (childNode.color === "#ffff99") {
+        yellowChildren.push(childId);
       } else {
         deleteTargets.push(childId);
       }
@@ -230,13 +241,21 @@ export const useGraphLogic = (gameType: string) => {
       deleteNode(childId);
     });
 
+    yellowChildren.forEach((childId) => {
+      deleteChildren(childId);
+    });
+
+    blueChildren.forEach((childId) => {
+      deleteChildren(childId);
+    });
+
     // 親ノードの children を青だけ残す
     setNodesMap((prev) => {
       const updated = { ...prev };
       if (updated[nodeId]) {
         updated[nodeId] = {
           ...updated[nodeId],
-          children: blueChildren,
+          children: [...blueChildren, ...yellowChildren],
         };
       }
       return updated;
@@ -261,7 +280,7 @@ export const useGraphLogic = (gameType: string) => {
       return updated;
     });
     setNodes((prev) =>
-      prev.map((n) => ({ ...n, hidden: nodesMap[n.id]?.hidden || false }))
+      prev.map((n) => ({ ...n, hidden: nodesMap[n.id]?.hidden || false })),
     );
     setEdges((prev) =>
       prev.map((e) => ({
@@ -269,7 +288,7 @@ export const useGraphLogic = (gameType: string) => {
         hidden:
           (nodesMap[e.source]?.hidden ?? false) ||
           (nodesMap[e.target]?.hidden ?? false),
-      }))
+      })),
     );
   };
 
@@ -290,7 +309,7 @@ export const useGraphLogic = (gameType: string) => {
     });
 
     setNodes((prev) =>
-      prev.map((n) => ({ ...n, hidden: nodesMap[n.id]?.hidden || false }))
+      prev.map((n) => ({ ...n, hidden: nodesMap[n.id]?.hidden || false })),
     );
     setEdges((prev) =>
       prev.map((e) => ({
@@ -298,14 +317,22 @@ export const useGraphLogic = (gameType: string) => {
         hidden:
           (nodesMap[e.source]?.hidden ?? false) ||
           (nodesMap[e.target]?.hidden ?? false),
-      }))
+      })),
     );
   };
 
   // ===== APIから法的手を追加 =====
-  const addLegalMovesFromApi = async () => {
-    if (!selectedNodeId) return;
-    const node = nodesMap[selectedNodeId];
+  const addLegalMovesFromApi = async (nodeId: string, deleteFlg?: boolean) => {
+    if (deleteFlg === null) {
+      deleteFlg = true;
+    }
+    const node = nodesMap[nodeId];
+    if (!node) return;
+
+    if (node.color === "#ff99ff" || node.color === "#285294" || node.color === "#ffff99") {
+      return;
+    }
+
     const body: any = {
       board: node.board,
       player: node.currentPlayer,
@@ -314,7 +341,7 @@ export const useGraphLogic = (gameType: string) => {
 
     try {
       console.log(JSON.stringify(body));
-      const res = await fetch(`http://127.0.0.1:8000/legal_moves/${gameType}`, {
+      const res = await fetch(`${API_URL}/legal_moves/${gameType}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -325,21 +352,23 @@ export const useGraphLogic = (gameType: string) => {
       const moves: number[][] = data.moves;
 
       if (moves.length === 0) {
-        updateNodeColor("#ff99ff");
+        updateNodeColor("#ff99ff", nodeId);
         // 親ノードの色も変更
-        const parentId = nodesMap[selectedNodeId]?.parentId;
+        const parentId = nodesMap[nodeId]?.parentId;
         const parent = parentId ? nodesMap[parentId] : null;
 
         if (parentId && parent) {
           updateNodeColor("#ffff99", parent.id);
-          // 兄弟削除
-          const siblings = [...parent.children];
-          siblings.forEach((siblingId) => {
-            if (siblingId !== selectedNodeId) {
-              deleteNode(siblingId);
-            }
-          });
-          toggleChildren(parentId);
+          if (deleteFlg === true) {
+            // 兄弟削除
+            const siblings = [...parent.children];
+            siblings.forEach((siblingId) => {
+              if (siblingId !== nodeId) {
+                deleteNode(siblingId);
+              }
+            });
+            toggleChildren(parentId);
+          }
         }
         return;
       }
@@ -354,8 +383,8 @@ export const useGraphLogic = (gameType: string) => {
               ? "."
               : i === r2 && j === c2
                 ? node.board[r1][c1]
-                : cell
-          )
+                : cell,
+          ),
         );
         let color: string = "#ffffff";
 
@@ -367,23 +396,20 @@ export const useGraphLogic = (gameType: string) => {
           console.log(
             "Existing node found for legal move:",
             existingId,
-            existingNode
+            existingNode,
           );
           existingNode.hidden = false; // ノード表示
           // エッジを追加
-          const edgeId = `e_${selectedNodeId}_${existingId}`;
+          const edgeId = `e_${nodeId}_${existingId}`;
           setEdges((eds) => {
             // 既存エッジチェック
             if (eds.find((e) => e.id === edgeId)) return eds;
-            return [
-              ...eds,
-              { id: edgeId, source: selectedNodeId, target: existingId },
-            ];
+            return [...eds, { id: edgeId, source: nodeId, target: existingId }];
           });
           const existingColor = existingNode?.color ?? "#ffffff";
-          if (existingColor === "#ff99ff" || existingColor === "a#285294") {
+          if (existingColor === "#ff99ff" || existingColor === "#285294") {
             console.log("Existing node color:", existingColor);
-            updateNodeColor("#ffff99", selectedNodeId);
+            updateNodeColor("#ffff99", nodeId);
             // 兄弟削除
             const siblings = [...node.children];
             console.log("Siblings to delete:", siblings);
@@ -393,23 +419,53 @@ export const useGraphLogic = (gameType: string) => {
                 deleteNode(siblingId);
               }
             });
-            toggleChildren(selectedNodeId);
+            toggleChildren(nodeId);
             breakpoint = true;
           }
         } else {
           addNode(
-            selectedNodeId,
+            nodeId,
             newBoard,
             node.currentPlayer === "B" ? "W" : "B",
             idx,
             moves.length,
-            color
+            color,
           );
         }
       });
     } catch (e) {
       console.error(e);
-      alert("Failed to fetch legal moves");
+      // alert("Failed to fetch legal moves");
+    }
+  };
+
+  const addLegalMovesFromApi2 = async (nodeId: string) => {
+    const node = nodesMap[nodeId];
+    if (!node) return;
+
+    // 0段目
+    await addLegalMovesFromApi(nodeId);
+
+    const level1 = [...(nodesMap[nodeId]?.children || [])];
+
+    for (const childId of level1) {
+      // setSelectedNodeId(childId);
+      console.log(childId);
+      await addLegalMovesFromApi(childId, false);
+      const childNode = nodesMap[childId];
+      // if (childNode && childNode.color === "#ff99ff") {
+      //   console.log("stop", childId);
+      //   return;
+      // }
+
+      const level2 = [...(nodesMap[childId]?.children || [])];
+
+      for (const grandChildId of level2) {
+        await addLegalMovesFromApi(grandChildId);
+      }
+    }
+    if (node.color !== "#ffffff") {
+      await deleteChildren(nodeId);
     }
   };
 
@@ -447,7 +503,7 @@ export const useGraphLogic = (gameType: string) => {
       prev.map((n) => ({
         ...n,
         hidden: nodesMap[n.id]?.hidden || false,
-      }))
+      })),
     );
     setEdges((prev) =>
       prev.map((e) => ({
@@ -455,7 +511,7 @@ export const useGraphLogic = (gameType: string) => {
         hidden:
           (nodesMap[e.source]?.hidden ?? false) ||
           (nodesMap[e.target]?.hidden ?? false),
-      }))
+      })),
     );
   };
 
@@ -475,7 +531,7 @@ export const useGraphLogic = (gameType: string) => {
       prev.map((n) => ({
         ...n,
         hidden: nodesMap[n.id]?.hidden || false,
-      }))
+      })),
     );
     setEdges((prev) =>
       prev.map((e) => ({
@@ -483,7 +539,7 @@ export const useGraphLogic = (gameType: string) => {
         hidden:
           (nodesMap[e.source]?.hidden ?? false) ||
           (nodesMap[e.target]?.hidden ?? false),
-      }))
+      })),
     );
   };
 
@@ -496,7 +552,7 @@ export const useGraphLogic = (gameType: string) => {
       selectedNodeId,
     };
     try {
-      await fetch(`http://127.0.0.1:8000/save_graph?game_type=${gameType}`, {
+      await fetch(`${API_URL}/save_graph?game_type=${gameType}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -529,6 +585,7 @@ export const useGraphLogic = (gameType: string) => {
     updateNodeColor,
     toggleChildren,
     addLegalMovesFromApi,
+    addLegalMovesFromApi2,
     onNodesChange,
     hideyellow,
     deleteChildren,
