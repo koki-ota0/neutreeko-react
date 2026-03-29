@@ -3,8 +3,13 @@ from pydantic import BaseModel
 from typing import List, Optional, Tuple, Set
 import os
 import json
+import redis
 
 app = FastAPI()
+
+# ----------------- Redis設定 -----------------
+REDIS_URL = os.getenv("REDIS_URL")
+redis_client = redis.from_url(REDIS_URL) if REDIS_URL else None
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -94,9 +99,19 @@ def create_initial_graph(game_type: str):
 # ----------------- API -----------------
 @app.get("/load_graph")
 def load_graph(game_type: str):
-    file = GRAPH_FILES.get(game_type, None)
-    if not file:
+    if game_type not in GRAPH_FILES:
         return {"error": "Unknown game type"}
+
+    # Redisがある場合はRedisから読み込み
+    if redis_client:
+        key = f"graph:{game_type}"
+        data = redis_client.get(key)
+        if data:
+            return json.loads(data)
+        return create_initial_graph(game_type)
+
+    # ローカル開発用：ファイルから読み込み
+    file = GRAPH_FILES[game_type]
     if os.path.exists(file):
         with open(file, "r") as f:
             return json.load(f)
@@ -105,9 +120,17 @@ def load_graph(game_type: str):
 
 @app.post("/save_graph")
 def save_graph(data: dict, game_type: str):
-    file = GRAPH_FILES.get(game_type, None)
-    if not file:
+    if game_type not in GRAPH_FILES:
         return {"error": "Unknown game type"}
+
+    # Redisがある場合はRedisに保存
+    if redis_client:
+        key = f"graph:{game_type}"
+        redis_client.set(key, json.dumps(data, ensure_ascii=False))
+        return {"status": "ok"}
+
+    # ローカル開発用：ファイルに保存
+    file = GRAPH_FILES[game_type]
     os.makedirs(os.path.dirname(file), exist_ok=True)
     with open(file, "w") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
