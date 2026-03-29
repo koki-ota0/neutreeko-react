@@ -31,6 +31,7 @@ export const GraphContainer: React.FC<GraphContainerProps> = ({
     updateNodeColor,
     toggleChildren,
     addLegalMovesFromApi,
+    addLegalMovesFromApi2,
     onNodesChange,
     hideyellow,
     deleteChildren,
@@ -86,13 +87,14 @@ export const GraphContainer: React.FC<GraphContainerProps> = ({
             <NodePanel
               node={nodesMap[selectedNodeId]}
               boardComponent={BoardComponent}
-              addLegalMoves={addLegalMovesFromApi}
+              addLegalMoves={() => addLegalMovesFromApi(selectedNodeId)}
+              addLegalMoves2={() => addLegalMovesFromApi2(selectedNodeId)}
               deleteNode={() => deleteNode(selectedNodeId)}
               hideNode={() => hideNode(selectedNodeId)}
               updateNodeColor={updateNodeColor}
-              toggleChildren={toggleChildren}
+              toggleChildren={() => toggleChildren(selectedNodeId)}
               hideyellow={hideyellow}
-              deleteChildren={deleteChildren}
+              deleteChildren={() => deleteChildren(selectedNodeId)}
               showGreen={showGreen}
               saveGraph={saveGraph}
             />
