@@ -1,29 +1,42 @@
 // NodePanel.tsx
 import React from "react";
 import { MyNodeData } from "../types/MyNodeData";
-import { NeutreekoBoardNode } from "./NeutreekoBoardNode";
 
 interface NodePanelProps {
   node: MyNodeData & { color?: string };
+  boardComponent: React.ComponentType<{ board: any; color?: string }>;
   addLegalMoves: () => void;
+  addLegalMoves2: () => void;
   deleteNode: () => void;
+  hideNode: () => void;
   updateNodeColor: (color: string) => void;
-  toggleChildren: (nodeId: string) => void;
+  toggleChildren: () => void;
+  hideyellow: () => void;
+  deleteChildren: () => void;
+  showGreen: () => void;
   saveGraph: () => void;
 }
 
 export const NodePanel: React.FC<NodePanelProps> = ({
   node,
+  boardComponent: BoardComponent,
   addLegalMoves,
+  addLegalMoves2,
   deleteNode,
+  hideNode,
   updateNodeColor,
   toggleChildren,
+  hideyellow,
+  deleteChildren,
+  showGreen,
   saveGraph,
 }) => {
   const colors = [
     "#ffffff",
     "#cccccc", // またルート見えず
+    "#ffcc99", // ループノード
     "#99ff99", // プレイ中のノード
+    "#11c101ff", // プレイ終了のノード
     "#ff9999", // 選ばない方がいい
     "#9999ff", // ほとんど勝ち
     "#ffff99", // 選んじゃダメ
@@ -37,15 +50,21 @@ export const NodePanel: React.FC<NodePanelProps> = ({
         <p>Node ID: {node.id}</p>
       </div>
       <div style={{ marginTop: 10 }}>
-        <NeutreekoBoardNode board={node.board} />
+        <BoardComponent board={node.board} color={node.color} />
       </div>
 
       <div style={{ marginTop: 10 }}>
         <button onClick={addLegalMoves}>Add Legal Moves</button>
       </div>
+      <div style={{ marginTop: 10 }}>
+        <button onClick={addLegalMoves2}>Add 2 Legal Moves</button>
+      </div>
 
       <div style={{ marginTop: 10 }}>
         <button onClick={deleteNode}>Delete Node</button>
+      </div>
+      <div style={{ marginTop: 10 }}>
+        <button onClick={hideNode}>Hide Node</button>
       </div>
 
       <div style={{ marginTop: 10 }}>
@@ -66,8 +85,20 @@ export const NodePanel: React.FC<NodePanelProps> = ({
           ))}
         </div>
       </div>
-      <button onClick={() => toggleChildren(node.id)}>
+      <button onClick={toggleChildren}>
         {node.hiddenChildren ? "Show Children" : "Hide Children"}
+      </button>
+      <button onClick={hideyellow} style={{ marginTop: "10px" }}>
+        Hide Yellow Nodes
+      </button>
+      <button
+        onClick={deleteChildren}
+        style={{ marginTop: "10px" }}
+      >
+        Delete Children Nodes
+      </button>
+      <button onClick={() => showGreen()} style={{ marginTop: "10px" }}>
+        Show Green nodes
       </button>
       <button onClick={saveGraph} style={{ marginTop: "10px" }}>
         Save Graph

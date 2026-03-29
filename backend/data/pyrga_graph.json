@@ -1,0 +1,30 @@
+{
+  "nodes": [
+    {
+      "id": "node_0",
+      "position": {
+        "x": 100,
+        "y": 100
+      }
+    }
+  ],
+  "edges": [],
+  "nodesMap": {
+    "node_0": {
+      "id": "node_0",
+      "board": [
+        [[{ "type": "S", "player": "B" }], [{}], [{}], [{}]],
+        [[{}], [{}], [{}], [{}]],
+        [[{}], [{}], [{}], [{}]],
+        [[{}], [{}], [{}], [{}]]
+      ],
+      "currentPlayer": "B",
+      "children": [],
+      "position": {
+        "x": 100,
+        "y": 100
+      }
+    }
+  },
+  "selectedNodeId": "node_0"
+}

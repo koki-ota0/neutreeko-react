@@ -1,43 +1,84 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-from typing import Any, List, Tuple, Set
+from typing import List, Optional, Tuple, Set
 import os
 import json
-
-BOARD_SIZE = 5
-EMPTY = "."
-BLACK = "B"
-WHITE = "W"
-DIRECTIONS = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
 
 app = FastAPI()
 
 from fastapi.middleware.cors import CORSMiddleware
 
+# 環境変数からCORS許可オリジンを取得（カンマ区切りで複数指定可能）
+ALLOWED_ORIGINS = os.getenv(
+    "ALLOWED_ORIGINS",
+    "http://localhost:3000,http://127.0.0.1:3000"
+).split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-GRAPH_FILE = "data/graph_data.json"
+# ----------------- 共通定数 -----------------
+EMPTY = "."
+BLACK = "B"
+WHITE = "W"
+DIRECTIONS_8 = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
+DIRECTIONS_4 = [(-1, 0), (1, 0), (0, -1), (0, 1)]  # S用
 
 
-def create_initial_graph():
-    root_id = "node_0"
-    root_board = [
-        [".", "W", ".", "W", "."],
-        [".", ".", "B", ".", "."],
-        [".", ".", ".", ".", "."],
-        [".", ".", "W", ".", "."],
-        [".", "B", ".", "B", "."],
-    ]
+# ----------------- データモデル -----------------
+class GraphData(BaseModel):
+    nodes: List[dict]
+    edges: List[dict]
+    nodesMap: dict
+    selectedNodeId: str
+
+
+class NeutreekoMoveRequest(BaseModel):
+    board: List[List[str]]  # 5x5
+    player: str
+
+
+class PyrgaMoveRequest(BaseModel):
+    board: List[List[List[str]]]  # 4x4, 1セルに複数コマ
+    player: str
+    last_move: Optional[Tuple[int, int, str]] = None
+
+
+class MoveResponse(BaseModel):
+    moves: List[List[int]]  # Neutreeko: [r1,c1,r2,c2], Pyrga: [r,c,piece_index]
+
+
+# ----------------- グラフファイル -----------------
+GRAPH_FILES = {
+    "neutreeko": "data/neutreeko_graph.json",
+    "pyrga": "data/pyrga_graph.json",
+}
+
+
+def create_initial_graph(game_type: str):
+    if game_type == "neutreeko":
+        root_id = "node_0"
+        board = [
+            [".", "W", ".", "W", "."],
+            [".", ".", "B", ".", "."],
+            [".", ".", ".", ".", "."],
+            [".", ".", "W", ".", "."],
+            [".", "B", ".", "B", "."],
+        ]
+    else:  # pyrga
+        root_id = "node_0"
+        BOARD_SIZE = 4
+        board = [["." for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)]
+
     root_node = {
         "id": root_id,
-        "board": root_board,
-        "currentPlayer": BLACK,
+        "board": board,
+        "currentPlayer": "B",
         "children": [],
     }
     return {
@@ -50,52 +91,76 @@ def create_initial_graph():
     }
 
 
+# ----------------- API -----------------
 @app.get("/load_graph")
-def load_graph():
-    if os.path.exists(GRAPH_FILE):
-        print("Loading graph from file.")
-        with open(GRAPH_FILE, "r") as f:
+def load_graph(game_type: str):
+    file = GRAPH_FILES.get(game_type, None)
+    if not file:
+        return {"error": "Unknown game type"}
+    if os.path.exists(file):
+        with open(file, "r") as f:
             return json.load(f)
-    else:
-        print("Graph file not found. Returning initial graph.")
-        # 保存ファイルがない場合は初期グラフを返す
-        return create_initial_graph()
+    return create_initial_graph(game_type)
 
 
 @app.post("/save_graph")
-def save_graph(data: dict):
-    os.makedirs(os.path.dirname(GRAPH_FILE), exist_ok=True)
-    with open(GRAPH_FILE, "w") as f:
+def save_graph(data: dict, game_type: str):
+    file = GRAPH_FILES.get(game_type, None)
+    if not file:
+        return {"error": "Unknown game type"}
+    os.makedirs(os.path.dirname(file), exist_ok=True)
+    with open(file, "w") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
     return {"status": "ok"}
 
 
-class MoveRequest(BaseModel):
-    board: List[List[str]]
+# ----------------- Pyrga用データモデル -----------------
+class PyrgaPiece(BaseModel):
+    type: str  # "S", "T", "C"
+    player: str  # "B" or "W"
+    direction: Optional[int] = None  # 三角のみ、0-3など
+
+
+class PyrgaMoveRequest(BaseModel):
+    board: List[List[List[PyrgaPiece]]]  # dict で受け取る
     player: str
+    last_move: Optional[Tuple[int, int, PyrgaPiece]] = None
 
 
 class MoveResponse(BaseModel):
-    moves: List[List[int]]  # r1,c1,r2,c2
+    moves: List[List[int]]  # [r, c, piece_index]
 
 
-def board_move_key(r1: int, c1: int, r2: int, c2: int) -> Tuple[int, int, int, int]:
-    """左右対称を考慮したキー生成"""
-    # 左右反転後の列は BOARD_SIZE-1-c
-    mirror = (r1, BOARD_SIZE - 1 - c1, r2, BOARD_SIZE - 1 - c2)
-    normal = (r1, c1, r2, c2)
-    # 小さい方をキーとして使う
-    return min(normal, mirror)
+# ----------------- Helper -----------------
+def is_inside(r, c):
+    return 0 <= r < 4 and 0 <= c < 4
 
 
-from typing import List, Set, Tuple
+def can_place(cell: List[dict], piece_type: str) -> bool:
+    # 同じマスに同じタイプは置けない
+    if len(cell) >= 3:
+        return False
+    return not any(p["type"] == piece_type for p in cell)
 
 
-def board_move_key(r1, c1, r2, c2):
-    return (r1, c1, r2, c2)
+def empty_cells(board: List[List[List[dict]]]):
+    cells = []
+    for r in range(4):
+        for c in range(4):
+            if board[r][c] is None:
+                board[r][c] = []
+            if (
+                can_place(board[r][c], "S")
+                or can_place(board[r][c], "T")
+                or can_place(board[r][c], "C")
+            ):
+                cells.append((r, c))
+    return cells
 
 
-def check_win(board: list[list[str]], player: str) -> bool:
+def check_neutreeko_win(board: List[List[str]], player: str) -> bool:
+    BOARD_SIZE = len(board)
+    DIRECTIONS = DIRECTIONS_8
     for r in range(BOARD_SIZE):
         for c in range(BOARD_SIZE):
             if board[r][c] == player:
@@ -118,10 +183,11 @@ def check_win(board: list[list[str]], player: str) -> bool:
 
 def opponent_moves_lead_to_win(board: list[list[str]], opponent: str) -> bool:
     """相手が次の手で勝利する手があるか"""
+    BOARD_SIZE = len(board)
     for r in range(BOARD_SIZE):
         for c in range(BOARD_SIZE):
             if board[r][c] == opponent:
-                for dr, dc in DIRECTIONS:
+                for dr, dc in DIRECTIONS_8:
                     nr, nc = r + dr, c + dc
                     while (
                         0 <= nr < BOARD_SIZE
@@ -136,13 +202,19 @@ def opponent_moves_lead_to_win(board: list[list[str]], opponent: str) -> bool:
                         new_board = [row[:] for row in board]
                         new_board[end_r][end_c] = opponent
                         new_board[r][c] = EMPTY
-                        if check_win(new_board, opponent):
+                        if check_neutreeko_win(new_board, opponent):
                             return True
     return False
 
 
-@app.post("/legal_moves", response_model=MoveResponse)
-def legal_moves(req: MoveRequest):
+def board_move_key(r1, c1, r2, c2):
+    return (r1, c1, r2, c2)
+
+
+# ----------------- Legal Moves -----------------
+@app.post("/legal_moves/neutreeko", response_model=MoveResponse)
+def legal_moves(req: NeutreekoMoveRequest):
+    BOARD_SIZE = len(req.board)
     board = req.board
     player = req.player
     moves = []
@@ -153,7 +225,7 @@ def legal_moves(req: MoveRequest):
     for r in range(BOARD_SIZE):
         for c in range(BOARD_SIZE):
             if board[r][c] == player:
-                for dr, dc in DIRECTIONS:
+                for dr, dc in DIRECTIONS_8:
                     nr, nc = r + dr, c + dc
                     while (
                         0 <= nr < BOARD_SIZE
@@ -175,5 +247,63 @@ def legal_moves(req: MoveRequest):
                             if key not in seen:
                                 seen.add(key)
                                 moves.append([r, c, end_r, end_c])
+
+    return {"moves": moves}
+
+
+@app.post("/legal_moves/pyrga", response_model=MoveResponse)
+def legal_moves_pyrga(req: PyrgaMoveRequest):
+    board = req.board
+    piece_types = ["S", "T", "C"]
+    moves = []
+
+    # board のセルが None や {} だったら空配列に変換
+    for r in range(4):
+        for c in range(4):
+            if not isinstance(board[r][c], list):
+                board[r][c] = []
+            else:
+                # dict のリストを PyrgaPiece に変換
+                for i, p in enumerate(board[r][c]):
+                    if not isinstance(p, PyrgaPiece):
+                        board[r][c][i] = PyrgaPiece(**p)
+
+    last_piece = None
+    if req.last_move:
+        lr, lc, last_piece_dict = req.last_move
+        if isinstance(last_piece_dict, dict):
+            last_piece = PyrgaPiece(**last_piece_dict)
+        else:
+            last_piece = last_piece_dict
+    else:
+        # 初手: 空きセルにどのコマでも置ける
+        for r, c in empty_cells(board):
+            for idx, _ in enumerate(piece_types):
+                moves.append([r, c, idx])
+        return {"moves": moves}
+
+    lr, lc = req.last_move[0], req.last_move[1]
+
+    if last_piece.type == "S":
+        # 隣接マス
+        for dr, dc in DIRECTIONS_4:
+            nr, nc = lr + dr, lc + dc
+            if is_inside(nr, nc) and can_place(board[nr][nc], last_piece.type):
+                for idx, _ in enumerate(piece_types):
+                    moves.append([nr, nc, idx])
+    elif last_piece.type == "T":
+        # 8方向ライン
+        for dr, dc in DIRECTIONS_8:
+            nr, nc = lr + dr, lc + dc
+            while is_inside(nr, nc) and can_place(board[nr][nc], last_piece.type):
+                for idx, _ in enumerate(piece_types):
+                    moves.append([nr, nc, idx])
+                nr += dr
+                nc += dc
+    elif last_piece.type == "C":
+        # 同じマス
+        if can_place(board[lr][lc], last_piece.type):
+            for idx, _ in enumerate(piece_types):
+                moves.append([lr, lc, idx])
 
     return {"moves": moves}
