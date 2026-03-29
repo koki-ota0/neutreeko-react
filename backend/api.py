@@ -3,13 +3,17 @@ from pydantic import BaseModel
 from typing import List, Optional, Tuple, Set
 import os
 import json
-import redis
 
 app = FastAPI()
 
-# ----------------- Redis設定 -----------------
-REDIS_URL = os.getenv("REDIS_URL")
-redis_client = redis.from_url(REDIS_URL) if REDIS_URL else None
+# ----------------- Supabase設定 -----------------
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+supabase_client = None
+
+if SUPABASE_URL and SUPABASE_KEY:
+    from supabase import create_client
+    supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -102,12 +106,11 @@ def load_graph(game_type: str):
     if game_type not in GRAPH_FILES:
         return {"error": "Unknown game type"}
 
-    # Redisがある場合はRedisから読み込み
-    if redis_client:
-        key = f"graph:{game_type}"
-        data = redis_client.get(key)
-        if data:
-            return json.loads(data)
+    # Supabaseがある場合はSupabaseから読み込み
+    if supabase_client:
+        result = supabase_client.table("graphs").select("data").eq("game_type", game_type).execute()
+        if result.data and len(result.data) > 0:
+            return result.data[0]["data"]
         return create_initial_graph(game_type)
 
     # ローカル開発用：ファイルから読み込み
@@ -123,10 +126,12 @@ def save_graph(data: dict, game_type: str):
     if game_type not in GRAPH_FILES:
         return {"error": "Unknown game type"}
 
-    # Redisがある場合はRedisに保存
-    if redis_client:
-        key = f"graph:{game_type}"
-        redis_client.set(key, json.dumps(data, ensure_ascii=False))
+    # Supabaseがある場合はSupabaseに保存
+    if supabase_client:
+        supabase_client.table("graphs").upsert({
+            "game_type": game_type,
+            "data": data
+        }).execute()
         return {"status": "ok"}
 
     # ローカル開発用：ファイルに保存
