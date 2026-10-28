@@ -69,6 +69,106 @@ GRAPH_FILES = {
 }
 
 
+# ----------------- 圧縮/展開ヘルパー -----------------
+def unflatten_board(flat: str, size: int = 5) -> List[List[str]]:
+    """Convert flat string back to 2D array."""
+    return [[flat[i * size + j] for j in range(size)] for i in range(size)]
+
+
+def flatten_board(board: List[List[str]]) -> str:
+    """Convert 2D board array to flat string."""
+    return "".join("".join(row) for row in board)
+
+
+def expand_node(node_id: str, compressed: dict, game_type: str) -> dict:
+    """Expand a compressed node to full format."""
+    board_size = 5 if game_type == "neutreeko" else 4
+    return {
+        "id": node_id,
+        "board": unflatten_board(compressed["b"], board_size),
+        "currentPlayer": compressed["p"],
+        "children": compressed.get("c", []),
+        "parentId": compressed.get("par"),
+        "position": {
+            "x": compressed["pos"][0] if "pos" in compressed else 0,
+            "y": compressed["pos"][1] if "pos" in compressed else 0,
+        },
+        "color": compressed.get("col", "#ffffff"),
+        "hidden": compressed.get("hid", False),
+        "hiddenChildren": False,
+    }
+
+
+def compress_node(node: dict) -> dict:
+    """Compress a node to minimal format."""
+    compressed = {
+        "b": flatten_board(node["board"]),
+        "p": node["currentPlayer"],
+    }
+    if node.get("children"):
+        compressed["c"] = node["children"]
+    if "position" in node:
+        compressed["pos"] = [
+            round(node["position"]["x"]),
+            round(node["position"]["y"]),
+        ]
+    color = node.get("color", "#ffffff")
+    if color and color != "#ffffff":
+        compressed["col"] = color
+    if node.get("parentId"):
+        compressed["par"] = node["parentId"]
+    if node.get("hidden"):
+        compressed["hid"] = True
+    return compressed
+
+
+def expand_graph(data: dict, game_type: str) -> dict:
+    """Expand compressed graph to full format."""
+    if data.get("_version") != 2:
+        # Already in expanded format
+        return data
+
+    nodesMap = {}
+    for node_id, compressed in data["nodesMap"].items():
+        nodesMap[node_id] = expand_node(node_id, compressed, game_type)
+
+    # Reconstruct nodes array from nodesMap
+    nodes = [
+        {"id": nid, "position": n["position"]}
+        for nid, n in nodesMap.items()
+    ]
+
+    # Reconstruct edges from children
+    edges = []
+    for nid, n in nodesMap.items():
+        for child_id in n.get("children", []):
+            edges.append({
+                "id": f"e_{nid}_{child_id}",
+                "source": nid,
+                "target": child_id,
+            })
+
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "nodesMap": nodesMap,
+        "selectedNodeId": data.get("selectedNodeId"),
+    }
+
+
+def compress_graph(data: dict) -> dict:
+    """Compress graph to minimal format."""
+    compressed_map = {}
+    for node_id, node in data.get("nodesMap", {}).items():
+        compressed_map[node_id] = compress_node(node)
+
+    return {
+        "nodesMap": compressed_map,
+        "selectedNodeId": data.get("selectedNodeId"),
+        "_version": 2,
+    }
+
+
 def create_initial_graph(game_type: str):
     if game_type == "neutreeko":
         root_id = "node_0"
@@ -110,14 +210,16 @@ def load_graph(game_type: str):
     if supabase_client:
         result = supabase_client.table("graphs").select("data").eq("game_type", game_type).execute()
         if result.data and len(result.data) > 0:
-            return result.data[0]["data"]
+            data = result.data[0]["data"]
+            return expand_graph(data, game_type)
         return create_initial_graph(game_type)
 
     # ローカル開発用：ファイルから読み込み
     file = GRAPH_FILES[game_type]
     if os.path.exists(file):
         with open(file, "r") as f:
-            return json.load(f)
+            data = json.load(f)
+            return expand_graph(data, game_type)
     return create_initial_graph(game_type)
 
 
@@ -126,19 +228,22 @@ def save_graph(data: dict, game_type: str):
     if game_type not in GRAPH_FILES:
         return {"error": "Unknown game type"}
 
+    # 圧縮形式に変換
+    compressed = compress_graph(data)
+
     # Supabaseがある場合はSupabaseに保存
     if supabase_client:
         supabase_client.table("graphs").upsert({
             "game_type": game_type,
-            "data": data
+            "data": compressed
         }).execute()
         return {"status": "ok"}
 
-    # ローカル開発用：ファイルに保存
+    # ローカル開発用：ファイルに保存（圧縮形式、インデントなし）
     file = GRAPH_FILES[game_type]
     os.makedirs(os.path.dirname(file), exist_ok=True)
     with open(file, "w") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+        json.dump(compressed, f, separators=(",", ":"), ensure_ascii=False)
     return {"status": "ok"}
 
 

@@ -40,6 +40,7 @@ export const GraphContainer: React.FC<GraphContainerProps> = ({
   } = useGraphLogic(gameType);
 
   useEffect(() => {
+    if (Object.keys(nodesMap).length === 0) return;
     setNodes((prevNodes) =>
       prevNodes.map((n) => {
         const mapNode = nodesMap[n.id];
@@ -56,7 +57,7 @@ export const GraphContainer: React.FC<GraphContainerProps> = ({
         };
       })
     );
-  }, [nodesMap, BoardComponent, setNodes, gameType]);
+  }, [nodesMap, BoardComponent, setNodes, gameType, nodes.length]);
 
   return (
     <ReactFlowProvider>
