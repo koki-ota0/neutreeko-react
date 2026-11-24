@@ -31,7 +31,7 @@ for (const gameType of ["neutreeko", "pyrga"]) {
   );
 }
 
-const repoSlug = process.env.GITHUB_REPOSITORY || "koki-ota0/neutreeko-react";
+const repoSlug = process.env.GITHUB_REPOSITORY || "kokilux/neutreeko-react";
 const repoName = repoSlug.split("/")[1] || "neutreeko-react";
 const publicUrl = process.env.PAGES_BASE_PATH || `/${repoName}`;
 const reactScripts = join(

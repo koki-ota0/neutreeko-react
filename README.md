@@ -310,7 +310,7 @@ syntax that CRA 5's TypeScript 4.9 cannot parse.
 
 ## Deployment
 
-- GitHub Pages: <https://koki-ota0.github.io/neutreeko-react/>.
+- GitHub Pages: <https://kokilux.github.io/neutreeko-react/>.
   `.github/workflows/pages.yml` builds on every push to `main` with
   `frontend/scripts/build-pages.mjs` and deploys via `actions/deploy-pages`.
   `npm run build:pages` copies `backend/data/*_graph.json` into
@@ -328,3 +328,20 @@ syntax that CRA 5's TypeScript 4.9 cannot parse.
   storage — ephemeral filesystems lose `backend/data/*.json` on restart.
 - Set `API_TOKEN` on the backend and the matching `REACT_APP_API_TOKEN` on the
   frontend so `/save_graph` is not publicly writable.
+
+### Repository owner / Git identity
+
+The GitHub account was renamed from `koki-ota0` to **`kokilux`** (same account
+id `85487709`). The canonical repository is `kokilux/neutreeko-react` and the
+Pages URL is `https://kokilux.github.io/neutreeko-react/`. Old URLs redirect,
+but keep local clones in sync:
+
+```bash
+git config user.name kokilux
+git config user.email 85487709+kokilux@users.noreply.github.com
+git remote set-url origin https://github.com/kokilux/neutreeko-react.git
+```
+
+Use `kokilux/neutreeko-react` for `gh` commands. Past commits intentionally
+keep their original author string: rewriting already-merged history would need
+a force-push and would break the PR/merge trail.

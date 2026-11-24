@@ -156,7 +156,7 @@ the CLI dry-run is idempotent (0 further prunes).
 ## GitHub Pages / static mode
 
 `.github/workflows/pages.yml` deploys `main` to
-<https://koki-ota0.github.io/neutreeko-react/> with `actions/deploy-pages`.
+<https://kokilux.github.io/neutreeko-react/> with `actions/deploy-pages`.
 `npm run build:pages` runs `frontend/scripts/build-pages.mjs`: it minifies the
 canonical graphs into gitignored `frontend/public/data/` and builds with
 `PUBLIC_URL=/neutreeko-react`, `REACT_APP_STATIC_DATA=1`, and an empty
@@ -164,6 +164,12 @@ canonical graphs into gitignored `frontend/public/data/` and builds with
 `frontend/src/game/rules.ts` replaces `/legal_moves/*`, and `saveGraph`
 downloads JSON instead of POSTing. Do not make the Pages build depend on
 `127.0.0.1` or an external API; the Vercel/API build stays unchanged.
+
+The GitHub owner is **`kokilux`** (renamed from `koki-ota0`, same id
+`85487709`); use `--repo kokilux/neutreeko-react` / the `kokilux/...` URL for
+`gh` and `origin`. Local identity is `kokilux
+<85487709+kokilux@users.noreply.github.com>`. Do not rewrite already-merged
+commit authors.
 
 ## Conventions / gotchas
 
