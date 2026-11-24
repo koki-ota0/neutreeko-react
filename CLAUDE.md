@@ -102,16 +102,17 @@ colour is now an alias of the automatic `losing` evaluation colour.
   almost winning.
 
 `HIDE_RESOLVED_COLORS` = decided/noMoves/loop positions + evaluated
-certain-win/losing positions. `hideResolved` is a **view filter**: it hides all
-of them (including `#0f766e` certain wins and `#ffff99` losses) and sets
-`hidden: false` on every other node. Do not implement it as one-way
-`hidden = true`; the saved graph can already contain thousands of hidden nodes,
-which made the button look like a no-op. Hidden nodes are not deleted and remain
-reusable. `showAllNodes` clears every `hidden` / `hiddenChildren` flag, and the
-panel shows `Visible: X / Y nodes`. `SKIP_REEXPANSION_COLORS` is the same set
-today but is a separate name because skipping re-expansion is a different
-operation. `showPlayLine` filters on green manual memos. Never infer a minimax
-outcome from a colour alone: the persisted `outcome` field is authoritative.
+certain-win/losing positions. `hideResolved` is **one-way**: it sets
+`hidden: true` only on those nodes (including `#0f766e` certain wins and
+`#ffff99` losses). It must NOT un-hide anything — already hidden Unanalyzed /
+memo nodes stay hidden. Do not turn it into a view filter again. Hidden nodes
+are not deleted and remain reusable. `showAllNodes` is the separate action that
+clears every `hidden` / `hiddenChildren` flag, and the panel shows
+`Visible: X / Y nodes` so a one-way hide is still measurable.
+`SKIP_REEXPANSION_COLORS` is the same set today but is a separate name because
+skipping re-expansion is a different operation. `showPlayLine` filters on green
+manual memos. Never infer a minimax outcome from a colour alone: the persisted
+`outcome` field is authoritative.
 
 ### Readability: never dye the board cells
 

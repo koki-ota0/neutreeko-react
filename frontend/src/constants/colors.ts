@@ -88,9 +88,9 @@ export const EVALUATED_POSITION_COLORS: string[] = [
   POSITION_COLORS.losing,
 ];
 
-/** "Hide resolved positions" is a view FILTER: hide terminal/loop states AND
- *  evaluated wins / losses, and un-hide everything else. Hiding is not
- *  deletion: decided nodes remain reusable. */
+/** Targets for the one-way "Hide resolved positions" action. It sets
+ *  `hidden: true` on these nodes only and never un-hides anything else.
+ *  Hiding is not deletion: decided nodes remain reusable. */
 export const HIDE_RESOLVED_COLORS: string[] = [
   ...RESOLVED_POSITION_COLORS,
   ...EVALUATED_POSITION_COLORS,
