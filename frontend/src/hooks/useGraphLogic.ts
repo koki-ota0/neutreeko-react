@@ -648,8 +648,8 @@ export const useGraphLogic = (gameType: GameType, Board: BoardRenderer) => {
 
         if (moves.length === 0) {
           // A terminal position is a loss for the side to move. The reached
-          // child keeps the decided-board / noMoves colour; rule 3 then makes
-          // the parent a certain win. Never paint the parent from here.
+          // child keeps the decided-board / noMoves colour; the parent is then
+          // decided by the exploration rules. Never paint the parent from here.
           const decided = analysis.gameOver && !!analysis.winner;
           updateNodeColor(
             decided ? POSITION_COLORS.winning : POSITION_COLORS.noMoves,
@@ -660,16 +660,18 @@ export const useGraphLogic = (gameType: GameType, Board: BoardRenderer) => {
           return;
         }
 
-        // Rule 1: choose every immediate winning move; other, still-unknown
-        // moves need no exploration. Already decided siblings are pruned later.
-        const winningKeys = new Set(analysis.winningMoves.map(moveKey));
-        const matchingWinningMoves = moves.filter((move) =>
-          winningKeys.has(moveKey(move)),
-        );
-        const candidateMoves =
-          winningKeys.size > 0 && matchingWinningMoves.length > 0
-            ? matchingWinningMoves
-            : moves;
+        // Highest priority: a move that makes three in a row would create a
+        // decided child. Do NOT add that child. Let rule 1 mark this parent
+        // Losing from its own currentPlayer's perspective (single source of
+        // truth for outcomes), instead of setting the outcome here.
+        if (analysis.winningMoves.length > 0) {
+          applyExplorationRules();
+          return;
+        }
+
+        // No decided child can be produced here, so every legal move is a
+        // normal candidate. Transpositions and pruning are handled below.
+        const candidateMoves = moves;
 
         const childPlayer = opponent(node.currentPlayer);
         for (let index = 0; index < candidateMoves.length; index += 1) {
@@ -714,8 +716,9 @@ export const useGraphLogic = (gameType: GameType, Board: BoardRenderer) => {
             siblingCount: candidateMoves.length,
           });
         }
-        // Rules 2/3 propagate fresh child outcomes to this parent and its
-        // ancestors; unknown siblings of decided parents are pruned.
+        // Rule 1 (three-in-a-row priority), 2 and 3 propagate fresh child
+        // outcomes to this parent and its ancestors; unknown siblings of
+        // decided parents are pruned.
         applyExplorationRules();
       } catch (caught) {
         setError(`Could not fetch legal moves: ${messageOf(caught)}`);

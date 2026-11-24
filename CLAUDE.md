@@ -41,8 +41,18 @@ colour-independent minimax pruning engine / migration CLI; `api.py` is just
 FastAPI wiring.
 
 `frontend/src/game/moves.ts` holds pure board/move helpers and
-`game/exploration.ts` holds the pure three-rule engine. The state hook
-(`hooks/useGraphLogic.ts`) keeps two synchronized structures:
+`game/exploration.ts` holds the pure three-rule engine. `outcome` is always
+viewed from that node's `currentPlayer`. Rule 1 has **highest priority**: a
+parent with a three-in-a-row child (or a legal move that would create one) is
+`loss` / `Losing`, and that decided child is NOT added during live expansion.
+This deliberately beats rule 3 (all children `loss` → `win`), rule 2 and even an
+already-persisted `win` outcome. The hook does not set `outcome` for this case:
+`resolveExploration` is the single source of truth, so `ruleHits.rule1` counts
+it. Rule 2 (`win` child → `loss`) and rule 3 are unchanged.
+`backend/exploration.py` keeps the
+original one-time migration semantics; it is intentionally not re-run against
+the saved graph. The state hook (`hooks/useGraphLogic.ts`) keeps two
+synchronized structures:
 
 - **ReactFlow state** (`nodes`, `edges`): positions, visibility and node `data`.
 - **nodesMap**: game tree keyed by node id (board, player, parent/children,
