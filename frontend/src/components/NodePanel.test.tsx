@@ -90,18 +90,18 @@ describe("NodePanel readable status", () => {
     ).toBeInTheDocument();
   });
 
-  it("explains that Hide resolved is a view filter over all nodes", () => {
+  it("explains that Hide resolved never reveals already hidden nodes", () => {
     render(React.createElement(NodePanel, props));
 
     expect(
       screen.getByRole("button", { name: "Hide resolved positions" }),
     ).toHaveAttribute(
       "title",
-      "Show all nodes except decided / no moves / loop / certain win / losing",
+      "Hide resolved nodes only; already hidden nodes stay hidden",
     );
     expect(
       screen.getByText(
-        /View filter: resolved nodes are hidden and every other node is un-hidden/,
+        /Hides resolved nodes only\. Already hidden Unanalyzed \/ memo nodes stay hidden/,
       ),
     ).toBeInTheDocument();
   });

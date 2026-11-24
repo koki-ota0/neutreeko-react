@@ -261,7 +261,7 @@ export const NodePanel: React.FC<NodePanelProps> = ({
       <div style={rowStyle}>
         <button
           onClick={hideResolved}
-          title="Show all nodes except decided / no moves / loop / certain win / losing"
+          title="Hide resolved nodes only; already hidden nodes stay hidden"
         >
           Hide resolved positions
         </button>{" "}
@@ -276,8 +276,8 @@ export const NodePanel: React.FC<NodePanelProps> = ({
         </button>
         <div>
           <small>
-            View filter: resolved nodes are hidden and every other node is
-            un-hidden. Evaluation results stay in the graph for reuse.
+            Hides resolved nodes only. Already hidden Unanalyzed / memo nodes
+            stay hidden; use Show all nodes to reveal them.
           </small>
         </div>
         <div>

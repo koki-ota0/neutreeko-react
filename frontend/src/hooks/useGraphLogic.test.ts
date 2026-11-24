@@ -339,7 +339,7 @@ describe("useGraphLogic", () => {
     );
   });
 
-  it("filters resolved nodes and un-hides other previously hidden nodes", async () => {
+  it("hides only resolved nodes and leaves already hidden nodes untouched", async () => {
     installFetch((url) => {
       if (url.includes("/load_graph")) {
         const graph = graphFor("neutreeko");
@@ -397,8 +397,8 @@ describe("useGraphLogic", () => {
     expect(result.current.nodesMap.node_0.hidden).toBe(false); // structured note
     expect(result.current.nodesMap.node_2.hidden).toBe(false); // manual memo
     expect(result.current.nodesMap.node_5.hidden).toBe(false); // unanalyzed
-    expect(result.current.nodesMap.node_6.hidden).toBe(false); // saved-hidden node restored
-    expect(result.current.nodesMap.node_6.hiddenChildren).toBe(false);
+    expect(result.current.nodesMap.node_6.hidden).toBe(true); // stays hidden
+    expect(result.current.nodesMap.node_6.hiddenChildren).toBe(true); // untouched
     // ReactFlow receives the same hidden flags, not just nodesMap.
     expect(
       result.current.nodes.find((node) => node.id === "node_3")?.hidden,
@@ -411,7 +411,7 @@ describe("useGraphLogic", () => {
     ).toBe(false);
     expect(
       result.current.nodes.find((node) => node.id === "node_6")?.hidden,
-    ).toBe(false);
+    ).toBe(true);
     // Hiding must not delete reusable evaluation results.
     expect(result.current.nodesMap.node_3.outcome).toBe("win");
     expect(result.current.nodesMap.node_4.outcome).toBe("loss");

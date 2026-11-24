@@ -192,12 +192,12 @@ filters on `playing` / `played`.
 
 - `SKIP_REEXPANSION_COLORS` = decided/noMoves/loop positions + evaluated
   certain-win/losing positions. Manual memos do not block re-expansion.
-- **Hide resolved positions** is a view filter: it hides `winning` / `noMoves` /
-  `loop` **and** `certainWin` / `losing` evaluation results, and un-hides every
-  other node. It only changes visibility: nodes stay in the graph and remain
-  reusable for transpositions and future exploration. Structured move notes and
-  manual memos stay visible. **Show all nodes** restores every saved hidden
-  node; the panel shows `Visible: X / Y nodes` so the effect is measurable.
+- **Hide resolved positions** is a one-way hide: it sets `hidden: true` on
+  `winning` / `noMoves` / `loop` **and** `certainWin` / `losing` nodes only.
+  Already hidden nodes — including Unanalyzed and manual memos — are **not**
+  un-hidden. Nodes stay in the graph and remain reusable for transpositions and
+  future exploration. **Show all nodes** is a separate action that clears every
+  `hidden` / `hiddenChildren` flag; the panel shows `Visible: X / Y nodes`.
 - Old behaviour that put `#285294` on the parent, `#ffff99` on the child, or
   treated a risky-move note as a proven loss has been removed. Regression tests
   cover the categories and the exploration rules.
