@@ -118,6 +118,26 @@ describe("NodePanel readable status", () => {
     expect(showAllSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("explains that unsafe moves are skipped during expansion", () => {
+    render(
+      React.createElement(NodePanel, {
+        ...props,
+        node: {
+          ...node,
+          analysis: {
+            winningMoves: [],
+            unsafeMoves: [[1, 2, 2, 2]],
+            gameOver: false,
+            winner: null,
+          },
+        },
+      }),
+    );
+
+    expect(screen.getByText(/Risky moves skipped: 1/)).toBeInTheDocument();
+    expect(screen.getByText(/excluded from expansion/)).toBeInTheDocument();
+  });
+
   it("uses download labels for the static Pages build", () => {
     render(
       React.createElement(NodePanel, {

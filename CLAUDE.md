@@ -84,10 +84,12 @@ move-application path across the two games.
 - `POST /legal_moves/neutreeko`, `POST /legal_moves/pyrga` — both return
   `{moves, winning_moves, unsafe_moves, game_over, winner}`.
 
-`moves` is the **complete** legal move list. Pruning is explicit: "Mark risky
-moves" adds structured `moveNote` annotations from `unsafe_moves`, while
-"Apply exploration rules" performs deterministic minimax pruning. Invalid input
-returns 422, and decided positions set `game_over` / `winner`.
+`moves` is the **complete** legal move list. `unsafe_moves` (one-reply losses)
+are **excluded from expansion before a child is created**; if all moves are
+unsafe the parent becomes `Losing`. "Mark risky moves" now only annotates risky
+children inherited from older graphs. "Apply exploration rules" performs the
+deterministic minimax pruning. Invalid input returns 422, and decided positions
+set `game_over` / `winner`.
 
 ### Node color semantics (three logical categories)
 
@@ -105,8 +107,8 @@ colour is now an alias of the automatic `losing` evaluation colour.
 - **B. `moveNote` (structured note on the incoming move)**: dangerous/risky
   children carry `moveNote: "mustNotChoose"` and a `⚠ MUST NOT CHOOSE` row. The
   compatibility alias `MOVE_NOTE_COLORS.mustNotChoose` equals `losing`, but a
-  risky move is **not** a proven loss. "Mark risky moves" must not paint the
-  parent yellow.
+  risky move is **not** a proven loss. Unsafe moves are skipped during
+  expansion; "Mark risky moves" must not paint the parent yellow.
 - **C. `MEMO_COLORS` (manual work notes, never auto-assigned)**: `#cccccc`
   root, `#99ff99` playing, `#11c101ff` played, `#ff9999` avoid, `#9999ff`
   almost winning.

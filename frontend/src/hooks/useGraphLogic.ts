@@ -669,9 +669,21 @@ export const useGraphLogic = (gameType: GameType, Board: BoardRenderer) => {
           return;
         }
 
-        // No decided child can be produced here, so every legal move is a
-        // normal candidate. Transpositions and pruning are handled below.
-        const candidateMoves = moves;
+        // A move that lets the opponent win with one reply is a one-move loss.
+        // Exclude it BEFORE creating any child instead of only annotating it.
+        // Use the fresh analysis response, not a possibly stale saved analysis.
+        const unsafeKeys = new Set(analysis.unsafeMoves.map(moveKey));
+        const candidateMoves = moves.filter(
+          (move) => !unsafeKeys.has(moveKey(move)),
+        );
+
+        if (candidateMoves.length === 0) {
+          // Every legal move loses in one reply: this side is Losing. Make the
+          // no-op expansion visible instead of leaving the parent unanalyzed.
+          setNodeOutcome(nodeId, "loss");
+          applyExplorationRules();
+          return;
+        }
 
         const childPlayer = opponent(node.currentPlayer);
         for (let index = 0; index < candidateMoves.length; index += 1) {
@@ -767,8 +779,9 @@ export const useGraphLogic = (gameType: GameType, Board: BoardRenderer) => {
         const child = nodesMapRef.current[id];
         return child?.move && keys.has(moveKey(child.move));
       });
-      // Risky moves are manual annotations, NOT a proven minimax loss. Keep
-      // the structured note on the incoming move; yellow now means `losing`.
+      // New expansions skip unsafe moves entirely, so normally `targets` is
+      // empty. This still annotates children that came from older graphs.
+      // Risky moves are manual annotations, NOT a proven minimax loss.
       setMoveNotes(targets, "mustNotChoose");
     },
     [setMoveNotes],

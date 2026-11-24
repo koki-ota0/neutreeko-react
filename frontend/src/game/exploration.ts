@@ -15,6 +15,9 @@
  * `outcome` is ALWAYS evaluated from the perspective of that node's
  * `currentPlayer`. A decided three-in-a-row board is therefore `loss` for the
  * side to move there, while the parent that reaches it is `loss` by rule 1.
+ * Live expansion additionally drops `unsafe_moves` (one-reply losses) before
+ * creating children; if no candidate remains, the hook marks the parent
+ * `Losing` directly. Those moves never reach this rule engine.
  *
  * Already decided children are never removed: they are reusable evidence for
  * transpositions and later exploration. The one-time migration of the legacy

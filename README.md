@@ -103,10 +103,12 @@ Both move endpoints return:
 }
 ```
 
-- `moves` is the **complete** legal move list. The old implementation silently
-  removed moves that let the opponent win; pruning is now explicit. **Mark risky
-  moves** adds structured `moveNote` annotations from `unsafe_moves`, while
-  **Apply exploration rules** performs the deterministic minimax pruning below.
+- `moves` is the **complete** legal move list. `unsafe_moves` are moves that let
+  the opponent win with one reply; **`Add legal moves` excludes them before
+  creating any child**. If every legal move is unsafe, the parent is marked
+  `Losing`. **Mark risky moves** only annotates risky children that older
+  graphs had already created, while **Apply exploration rules** performs the
+  deterministic minimax pruning below.
 - `game_over` / `winner` describe decided positions (three in a row).
 - Move encoding differs per game: Neutreeko `[fromRow, fromCol, toRow, toCol]`,
   Pyrga `[row, col, pieceIndex]` where `0=S, 1=T, 2=C`.
@@ -179,9 +181,9 @@ Only the analyser assigns these.
 ### B. Move notes — structured (`moveNote`)
 
 Risky incoming moves are stored as `moveNote: "mustNotChoose"` on the **child**
-(dashed outline / ⚠ in the canvas). **Mark risky moves** adds these notes and
-does **not** claim a minimax result, so it never paints the parent yellow.
-The parent turns yellow only when rule 2 proves it is losing.
+(dashed outline / ⚠ in the canvas). New expansions **skip** these moves, so
+**Mark risky moves** only annotates risky children from older graphs. It does
+**not** claim a minimax result and never paints the parent yellow.
 
 ### C. Work memos — manual only (`MEMO_COLORS`)
 
