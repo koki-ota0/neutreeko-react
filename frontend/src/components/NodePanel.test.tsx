@@ -117,4 +117,20 @@ describe("NodePanel readable status", () => {
     );
     expect(showAllSpy).toHaveBeenCalledTimes(1);
   });
+
+  it("uses download labels for the static Pages build", () => {
+    render(
+      React.createElement(NodePanel, {
+        ...props,
+        saveStatus: "saved",
+        saveButtonLabel: "Download graph JSON",
+        saveSavedLabel: "Downloaded",
+      }),
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Download graph JSON" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Downloaded")).toBeInTheDocument();
+  });
 });

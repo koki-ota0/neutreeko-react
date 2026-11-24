@@ -30,6 +30,9 @@ interface NodePanelProps {
   showPlayLine: () => void;
   markUnsafeMoves: () => void;
   saveGraph: () => void;
+  /** Optional labels for the static Pages build (download instead of POST). */
+  saveButtonLabel?: string;
+  saveSavedLabel?: string;
 }
 
 const rowStyle: React.CSSProperties = { marginTop: 10 };
@@ -56,6 +59,8 @@ export const NodePanel: React.FC<NodePanelProps> = ({
   showPlayLine,
   markUnsafeMoves,
   saveGraph,
+  saveButtonLabel = "Save graph",
+  saveSavedLabel = "Saved",
 }) => {
   const meta = getStatusMeta(node.color);
   const outcomeText =
@@ -293,9 +298,11 @@ export const NodePanel: React.FC<NodePanelProps> = ({
 
       <div style={rowStyle}>
         <button disabled={busy || saveStatus === "saving"} onClick={saveGraph}>
-          {saveStatus === "saving" ? "Saving…" : "Save graph"}
+          {saveStatus === "saving" ? "Saving…" : saveButtonLabel}
         </button>{" "}
-        {saveStatus === "saved" && <span role="status">Saved</span>}
+        {saveStatus === "saved" && (
+          <span role="status">{saveSavedLabel}</span>
+        )}
         {saveStatus === "error" && <span role="alert">Save failed</span>}
       </div>
 

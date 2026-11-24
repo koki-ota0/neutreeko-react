@@ -31,6 +31,8 @@ import {
   isReusablePositionColor,
   resolveExploration,
 } from "../game/exploration";
+import { analyzeMoves } from "../game/rules";
+import { STATIC_MODE, staticGraphUrl } from "../game/staticMode";
 import {
   AppliedMove,
   applyMove,
@@ -238,10 +240,14 @@ export const useGraphLogic = (gameType: GameType, Board: BoardRenderer) => {
       const headers: Record<string, string> = {};
       const token = process.env.REACT_APP_API_TOKEN;
       if (token) headers["X-API-Token"] = token;
-      const response = await fetch(
-        `${API_URL}/load_graph?game_type=${encodeURIComponent(gameType)}`,
-        { signal: controller.signal, headers },
-      );
+      // Static Pages builds read the bundled snapshot instead of FastAPI.
+      const url = STATIC_MODE
+        ? staticGraphUrl(gameType)
+        : `${API_URL}/load_graph?game_type=${encodeURIComponent(gameType)}`;
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers,
+      });
       if (!response.ok) throw new Error(`load_graph failed (${response.status})`);
       const data = await response.json();
       if (data?.error) throw new Error(String(data.error));
@@ -601,20 +607,34 @@ export const useGraphLogic = (gameType: GameType, Board: BoardRenderer) => {
       setBusy(true);
       setError(null);
       try {
-        const payload: Record<string, unknown> = {
-          board: node.board,
-          player: node.currentPlayer,
-        };
-        if (gameType === "pyrga") {
-          payload.last_move = lastMoveToPayload(node.lastMove);
+        let raw: Record<string, unknown>;
+        if (STATIC_MODE) {
+          // Browser-side port of backend/rules.py; no server on Pages.
+          raw = analyzeMoves(
+            gameType,
+            node.board,
+            node.currentPlayer,
+            node.lastMove ?? null,
+          );
+        } else {
+          const payload: Record<string, unknown> = {
+            board: node.board,
+            player: node.currentPlayer,
+          };
+          if (gameType === "pyrga") {
+            payload.last_move = lastMoveToPayload(node.lastMove);
+          }
+          raw = await request(`/legal_moves/${gameType}`, {
+            method: "POST",
+            body: JSON.stringify(payload),
+          });
         }
-        const raw = await request(`/legal_moves/${gameType}`, {
-          method: "POST",
-          body: JSON.stringify(payload),
-        });
         if (!mountedRef.current || !nodesMapRef.current[nodeId]) return;
 
-        const moves: number[][] = Array.isArray(raw?.moves) ? raw.moves : [];
+        const rawMoves = raw?.moves;
+        const moves: number[][] = Array.isArray(rawMoves)
+          ? (rawMoves as number[][])
+          : [];
         const analysis = parseAnalysis(raw);
         commit(nodesMapRef, setNodesMap, (previous) => ({
           ...previous,
@@ -885,6 +905,24 @@ export const useGraphLogic = (gameType: GameType, Board: BoardRenderer) => {
         nodesMap: nodesMapRef.current,
         selectedNodeId: selectedRef.current,
       };
+      if (STATIC_MODE) {
+        // Pages has no writable backend. Export the current graph so edits are
+        // still recoverable instead of failing with a 404 / CORS error.
+        const blob = new Blob([JSON.stringify(payload)], {
+          type: "application/json",
+        });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = `${gameType}_graph.json`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(url);
+        setSaveStatus("saved");
+        setError(null);
+        return;
+      }
       const result = await request(
         `/save_graph?game_type=${encodeURIComponent(gameType)}`,
         { method: "POST", body: JSON.stringify(payload) },

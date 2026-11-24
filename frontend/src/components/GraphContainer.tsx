@@ -6,6 +6,7 @@ import ReactFlow, {
   ReactFlowProvider,
 } from "react-flow-renderer";
 import { useGraphLogic } from "../hooks/useGraphLogic";
+import { STATIC_MODE } from "../game/staticMode";
 import { GameType } from "../types/MyNodeData";
 import { BoardRenderer } from "../types/flow";
 import { nodeTypes } from "./BoardNode";
@@ -78,6 +79,21 @@ export const GraphContainer: React.FC<GraphContainerProps> = ({
           }}
         >
           <h3>Node Panel</h3>
+          {STATIC_MODE && (
+            <p
+              role="note"
+              style={{
+                margin: "8px 0",
+                padding: "8px 10px",
+                backgroundColor: "#eef6ff",
+                border: "1px solid #b6d4f5",
+                borderRadius: 4,
+              }}
+            >
+              GitHub Pages demo: graphs are bundled snapshots. Edits stay in
+              this browser tab; “Download graph JSON” exports your changes.
+            </p>
+          )}
           {logic.busy && <p role="status">Working…</p>}
           {selectedNode ? (
             <NodePanel
@@ -102,6 +118,10 @@ export const GraphContainer: React.FC<GraphContainerProps> = ({
               showPlayLine={logic.showPlayLine}
               markUnsafeMoves={() => logic.markUnsafeMoves(selectedNode.id)}
               saveGraph={() => void logic.saveGraph()}
+              saveButtonLabel={
+                STATIC_MODE ? "Download graph JSON" : undefined
+              }
+              saveSavedLabel={STATIC_MODE ? "Downloaded" : undefined}
             />
           ) : (
             <p>Select a node to inspect it.</p>
