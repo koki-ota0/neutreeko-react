@@ -156,7 +156,7 @@ describe("useGraphLogic", () => {
     expect((result.current.nodesMap[first].board as string[][])[1][2]).toBe(".");
   });
 
-  it("puts the decided colour on the reached child and a certain win on its parent", async () => {
+  it("puts the decided colour on the reached child and makes its parent Losing", async () => {
     installFetch((url) => {
       if (url.includes("/load_graph")) {
         const graph = graphFor("neutreeko");
@@ -198,11 +198,13 @@ describe("useGraphLogic", () => {
     expect(result.current.nodesMap.node_1.color).toBe(POSITION_COLORS.winning);
     expect(result.current.nodesMap.node_1.outcome).toBe("loss");
     expect(result.current.nodesMap.node_1.winner).toBe("B");
-    // B. Rule 3: the PARENT can force that decided position => certain win.
+    // B. Rule 1 has priority: a parent with a three-in-a-row child is Losing
+    // from its own currentPlayer's perspective, even though rule 3 would
+    // otherwise call it a certain win.
     expect(result.current.nodesMap.node_0.color).toBe(
-      POSITION_COLORS.certainWin,
+      POSITION_COLORS.losing,
     );
-    expect(result.current.nodesMap.node_0.outcome).toBe("win");
+    expect(result.current.nodesMap.node_0.outcome).toBe("loss");
     // The old blue-on-parent / yellow-on-child behaviour is gone.
     expect(result.current.nodesMap.node_0.color).not.toBe(POSITION_COLORS.winning);
     expect(result.current.nodesMap.node_1.color).not.toBe(POSITION_COLORS.losing);
@@ -232,7 +234,7 @@ describe("useGraphLogic", () => {
     expect(result.current.nodesMap.node_0.outcome).toBe("loss");
   });
 
-  it("rule 1 chooses the winning move, prunes unknown siblings and records a certain win", async () => {
+  it("does not add a three-in-a-row child and marks the parent Losing first", async () => {
     installFetch((url) => {
       if (url.includes("/load_graph")) return graphFor("neutreeko");
       if (url.includes("/legal_moves/neutreeko")) {
@@ -256,13 +258,13 @@ describe("useGraphLogic", () => {
       await result.current.addLegalMovesFromApi("node_0");
     });
     expect(result.current.nodesMap.node_0.analysis?.winningMoves).toHaveLength(1);
-    expect(result.current.nodesMap.node_0.children).toHaveLength(1);
-    expect(result.current.nodesMap.node_0.outcome).toBe("win");
+    // The decided child is deliberately NOT added.
+    expect(result.current.nodesMap.node_0.children).toHaveLength(0);
+    expect(result.current.edges).toHaveLength(0);
+    expect(result.current.nodesMap.node_0.outcome).toBe("loss");
     expect(result.current.nodesMap.node_0.color).toBe(
-      POSITION_COLORS.certainWin,
+      POSITION_COLORS.losing,
     );
-    const [winningChild] = result.current.nodesMap.node_0.children;
-    expect(result.current.nodesMap[winningChild].move).toEqual([1, 2, 2, 2]);
     expect(result.current.explorationStats?.ruleHits.rule1).toBe(1);
   });
 

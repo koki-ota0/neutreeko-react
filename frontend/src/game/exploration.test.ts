@@ -22,7 +22,7 @@ const graph = (...nodes: MyNodeData[]): NodesMap =>
   Object.fromEntries(nodes.map((entry) => [entry.id, entry]));
 
 describe("resolveExploration", () => {
-  it("rule 1 keeps the winning move and decided children, prunes unknown siblings", () => {
+  it("rule 1 makes a three-in-a-row parent Losing with highest priority", () => {
     const result = resolveExploration(
       graph(
         node("root", {
@@ -47,13 +47,62 @@ describe("resolveExploration", () => {
       ),
     );
 
-    expect(result.nodesMap.root.outcome).toBe("win");
-    expect(result.nodesMap.root.color).toBe(POSITION_COLORS.certainWin);
+    expect(result.nodesMap.root.outcome).toBe("loss");
+    expect(result.nodesMap.root.color).toBe(POSITION_COLORS.losing);
     expect(result.nodesMap.root.children).toEqual(["winner", "decided"]);
     expect(result.nodesMap.decided.color).toBe(POSITION_COLORS.winning);
     expect(result.removedIds).toEqual(["unknown"]);
     expect(result.stats.ruleHits.rule1).toBe(1);
     expect(result.stats.decidedChildrenKept).toBe(2);
+  });
+
+  it("three-in-a-row beats rule 3 even when every child outcome is loss", () => {
+    const result = resolveExploration(
+      graph(
+        node("root", { children: ["three", "losing"] }),
+        node("three", {
+          parentId: "root",
+          outcome: "loss",
+          color: POSITION_COLORS.winning,
+          analysis: {
+            winningMoves: [],
+            unsafeMoves: [],
+            gameOver: true,
+            winner: "B",
+          },
+        }),
+        node("losing", { parentId: "root", outcome: "loss" }),
+      ),
+    );
+
+    expect(result.nodesMap.root.outcome).toBe("loss");
+    expect(result.nodesMap.root.color).toBe(POSITION_COLORS.losing);
+    expect(result.stats.ruleHits.rule1).toBe(1);
+    expect(result.stats.ruleHits.rule3).toBe(0);
+  });
+
+  it("rule 1 overrides an already-persisted win on the parent", () => {
+    const result = resolveExploration(
+      graph(
+        node("root", {
+          outcome: "win",
+          color: POSITION_COLORS.certainWin,
+          children: ["three"],
+        }),
+        node("three", {
+          parentId: "root",
+          outcome: "loss",
+          color: POSITION_COLORS.winning,
+          analysis: {
+            winningMoves: [], unsafeMoves: [], gameOver: true, winner: "B",
+          },
+        }),
+      ),
+    );
+
+    expect(result.nodesMap.root.outcome).toBe("loss");
+    expect(result.nodesMap.root.color).toBe(POSITION_COLORS.losing);
+    expect(result.stats.ruleHits.rule1).toBe(1);
   });
 
   it("rule 2 marks the parent losing and keeps the winning child", () => {

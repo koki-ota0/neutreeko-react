@@ -167,8 +167,8 @@ Only the analyser assigns these.
 | Color | Meaning | Attached to |
 | --- | --- | --- |
 | `#ffffff` | Unanalyzed | any node |
-| `#0f766e` | **Certain win**: this side can force a win (exploration rule 1 / 3) | the evaluated position |
-| `#ffff99` | **Losing**: the opponent can force a win (rule 2) | the evaluated position |
+| `#0f766e` | **Certain win**: this side can force a win (exploration rule 3) | the evaluated position |
+| `#ffff99` | **Losing**: the opponent can force a win (rule 2), or a three-in-a-row child is present (rule 1, highest priority) | the evaluated position |
 | `#285294` | **Decided**: three in a row already on the board; the player who just moved won | the **child** (reached terminal position) — never the parent |
 | `#ff99ff` | No moves: no legal moves and no winner | the node with zero moves |
 | `#ffcc99` | Loop / transposition: this position was reached before | the re-reached node |
@@ -228,14 +228,18 @@ fallback for an unrecognized persisted colour.
 
 ## Exploration rules and the applied migration
 
-The three requested rules operate on a persisted `outcome` field, always viewed
-from the node's `currentPlayer`:
+The three rules operate on a persisted `outcome` field, always viewed from the
+node's `currentPlayer`:
 
-1. **A node with an immediate winning move is `win`.** Choose only those moves;
-   other still-unknown branches need no exploration and are removed.
+1. **Highest priority — a parent with a three-in-a-row child is `loss`.** A
+   legal move that would create three in a row is **not added as a child**; the
+   parent is marked `Losing` immediately. This overrides rule 3, rule 2 and even
+   an already-persisted `win` outcome. A decided three-in-a-row board itself is
+   `loss` for the side to move there.
 2. **A node with any `win` child is `loss`.** The opponent can force a win from
    there; remove the remaining unknown branches.
-3. **A node whose children are all `loss` is `win`** and is recorded.
+3. **A node whose children are all `loss` is `win`** and is recorded (only when
+   no three-in-a-row child is present).
 
 Decided `win` / `loss` children are **never removed**: they remain reusable for
 transpositions and later exploration. Only unknown branches are pruned, and a

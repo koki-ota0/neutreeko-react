@@ -185,7 +185,8 @@ export const NodePanel: React.FC<NodePanelProps> = ({
               {explorationStats.outcomeWin} certain wins /{" "}
               {explorationStats.outcomeLoss} losses · rule hits{" "}
               {explorationStats.ruleHits.rule1}/{explorationStats.ruleHits.rule2}/
-              {explorationStats.ruleHits.rule3} ·{" "}
+              {explorationStats.ruleHits.rule3} (1 = three-in-a-row priority,
+              overrides 3) ·{" "}
               {explorationStats.decidedChildrenKept} decided children kept.
             </small>
           </div>

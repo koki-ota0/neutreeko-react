@@ -3,11 +3,18 @@
  * "Apply exploration rules" action. Outcomes are always viewed from the
  * perspective of the node's `currentPlayer`.
  *
- * 1. A node with an immediate winning move is `win`; unknown siblings need no
- *    exploration and are removed.
+ * 1. HIGHEST PRIORITY: a parent that has a three-in-a-row child — or a legal
+ *    move that would create one — is `loss` from its own `currentPlayer`'s
+ *    point of view. The decided child is not added during live expansion, so
+ *    it can never be mistaken for a `loss` child in rule 3. This overrides
+ *    rule 3, rule 2 and even an already-persisted `win` / `loss` outcome.
  * 2. A node with a `win` child (the opponent can force a win) is `loss`;
  *    unknown siblings are removed.
  * 3. A node whose children are all `loss` is `win` and is recorded.
+ *
+ * `outcome` is ALWAYS evaluated from the perspective of that node's
+ * `currentPlayer`. A decided three-in-a-row board is therefore `loss` for the
+ * side to move there, while the parent that reaches it is `loss` by rule 1.
  *
  * Already decided children are never removed: they are reusable evidence for
  * transpositions and later exploration. The one-time migration of the legacy
@@ -53,6 +60,11 @@ const UNKNOWN: ExplorationOutcome = "unknown";
 
 const isDecidedOutcome = (value: NodeOutcome | undefined): boolean =>
   value === "win" || value === "loss";
+
+/** A decided board: three in a row is already on the board. */
+const isThreeInARowNode = (node: MyNodeData): boolean =>
+  Boolean(node.analysis?.gameOver && node.analysis?.winner) ||
+  node.color === POSITION_COLORS.winning;
 
 /** Explicit outcomes only. A yellow manual note is never treated as a proof. */
 const persistedOutcome = (node: MyNodeData): ExplorationOutcome =>
@@ -146,12 +158,21 @@ export function resolveExploration(
 
   for (const id of postorder(nodesMap)) {
     const node = nodesMap[id];
-    if (outcomes[id] !== UNKNOWN) continue;
     const kids = node.children.filter((childId) => Boolean(nodesMap[childId]));
-    if (winningMoveKeys[id].size > 0) {
-      outcomes[id] = WIN;
+    // Rule 1 is the highest priority: a three-in-a-row child (or a move that
+    // would create one) makes this parent Losing. It overrides rule 3, rule 2
+    // AND an already-persisted `win`/`loss` outcome, so a stale evaluation can
+    // never survive a three-in-a-row parent.
+    if (
+      winningMoveKeys[id].size > 0 ||
+      kids.some((childId) => isThreeInARowNode(nodesMap[childId]))
+    ) {
+      outcomes[id] = LOSS;
       hits.rule1 += 1;
-    } else if (kids.some((childId) => outcomes[childId] === WIN)) {
+      continue;
+    }
+    if (outcomes[id] !== UNKNOWN) continue;
+    if (kids.some((childId) => outcomes[childId] === WIN)) {
       outcomes[id] = LOSS;
       hits.rule2 += 1;
     } else if (
