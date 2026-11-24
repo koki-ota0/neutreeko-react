@@ -6,7 +6,7 @@ export type Direction = "up" | "down" | "left" | "right";
 export interface PyrgaPiece {
   type: PyrgaPieceType;
   player: Player;
-  direction?: Direction; // Tのみ
+  direction?: Direction; // T only
 }
 
-export type PyrgaCell = PyrgaPiece[]; // max3
+export type PyrgaCell = PyrgaPiece[]; // max 3 pieces, one per type

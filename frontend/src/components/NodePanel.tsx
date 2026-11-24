@@ -1,108 +1,293 @@
-// NodePanel.tsx
 import React from "react";
-import { MyNodeData } from "../types/MyNodeData";
+import {
+  COLOR_SWATCH_GROUPS,
+  getStatusMeta,
+  POSITION_COLORS,
+} from "../constants/colors";
+import { ExplorationStats, OUTCOME_LABELS } from "../game/exploration";
+import { GameType, MyNodeData } from "../types/MyNodeData";
+import { BoardRenderer } from "../types/flow";
 
 interface NodePanelProps {
-  node: MyNodeData & { color?: string };
-  boardComponent: React.ComponentType<{ board: any; color?: string }>;
+  node: MyNodeData;
+  boardComponent: BoardRenderer;
+  gameType: GameType;
+  busy: boolean;
+  saveStatus: "idle" | "saving" | "saved" | "error";
   addLegalMoves: () => void;
   addLegalMoves2: () => void;
+  applyExplorationRules: () => void;
+  explorationStats: ExplorationStats | null;
   deleteNode: () => void;
   hideNode: () => void;
   updateNodeColor: (color: string) => void;
   toggleChildren: () => void;
-  hideyellow: () => void;
+  hideResolved: () => void;
   deleteChildren: () => void;
-  showGreen: () => void;
+  showPlayLine: () => void;
+  markUnsafeMoves: () => void;
   saveGraph: () => void;
 }
+
+const rowStyle: React.CSSProperties = { marginTop: 10 };
 
 export const NodePanel: React.FC<NodePanelProps> = ({
   node,
   boardComponent: BoardComponent,
+  gameType,
+  busy,
+  saveStatus,
   addLegalMoves,
   addLegalMoves2,
+  applyExplorationRules,
+  explorationStats,
   deleteNode,
   hideNode,
   updateNodeColor,
   toggleChildren,
-  hideyellow,
+  hideResolved,
   deleteChildren,
-  showGreen,
+  showPlayLine,
+  markUnsafeMoves,
   saveGraph,
 }) => {
-  const colors = [
-    "#ffffff",
-    "#cccccc", // またルート見えず
-    "#ffcc99", // ループノード
-    "#99ff99", // プレイ中のノード
-    "#11c101ff", // プレイ終了のノード
-    "#ff9999", // 選ばない方がいい
-    "#9999ff", // ほとんど勝ち
-    "#ffff99", // 選んじゃダメ
-    "#285294", // 勝ち確
-  ]; // 6色
+  const meta = getStatusMeta(node.color);
+  const outcomeText =
+    node.outcome === "win" || node.outcome === "loss"
+      ? OUTCOME_LABELS[node.outcome]
+      : null;
 
   return (
     <div>
       <div>
-        <strong>Current Player:</strong> {node.currentPlayer}
-        <p>Node ID: {node.id}</p>
-      </div>
-      <div style={{ marginTop: 10 }}>
-        <BoardComponent board={node.board} color={node.color} />
+        <strong>Current player:</strong> {node.currentPlayer}
+        <p style={{ margin: "4px 0" }}>Node ID: {node.id}</p>
+
+        {/* Status is spelled out with an icon, label, short code and description. */}
+        <div
+          style={{
+            marginTop: 6,
+            border: "1px solid #e5e7eb",
+            borderLeft: `6px solid ${meta.accent}`,
+            borderRadius: 6,
+            overflow: "hidden",
+            background: meta.pattern,
+            backgroundColor: "#ffffff",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "4px 6px",
+              backgroundColor: meta.chipBg,
+              color: meta.chipText,
+            }}
+          >
+            <span aria-hidden="true" style={{ fontWeight: 700 }}>
+              {meta.icon}
+            </span>
+            <strong style={{ fontSize: 12 }}>{meta.label}</strong>
+            <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 700 }}>
+              {meta.shortLabel}
+            </span>
+          </div>
+          <div style={{ padding: "4px 6px", backgroundColor: "#ffffff" }}>
+            <small>{meta.description}</small>
+            {outcomeText && (
+              <p style={{ margin: "4px 0 0" }}>
+                <strong>Outcome:</strong> {outcomeText}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {node.winner && (
+          <p style={{ color: POSITION_COLORS.winning }}>
+            Winner: {node.winner} (the player who just moved)
+          </p>
+        )}
+        {node.gameOver && <p>Terminal position — no legal moves.</p>}
+        {node.moveNote === "mustNotChoose" && (
+          <p
+            style={{
+              backgroundColor: "#fffbeb",
+              borderLeft: "4px solid #f59e0b",
+              color: "#8a6d00",
+              padding: "4px 6px",
+            }}
+          >
+            ⚠ Incoming move is flagged <em>must not choose</em> (structured
+            note; not a proven losing outcome).
+          </p>
+        )}
+        {node.analysis && (
+          <p style={{ margin: "4px 0" }}>
+            <small>
+              Winning moves: {node.analysis.winningMoves.length} · Risky moves:{" "}
+              {node.analysis.unsafeMoves.length}
+            </small>
+          </p>
+        )}
       </div>
 
-      <div style={{ marginTop: 10 }}>
-        <button onClick={addLegalMoves}>Add Legal Moves</button>
-      </div>
-      <div style={{ marginTop: 10 }}>
-        <button onClick={addLegalMoves2}>Add 2 Legal Moves</button>
-      </div>
-
-      <div style={{ marginTop: 10 }}>
-        <button onClick={deleteNode}>Delete Node</button>
-      </div>
-      <div style={{ marginTop: 10 }}>
-        <button onClick={hideNode}>Hide Node</button>
-      </div>
-
-      <div style={{ marginTop: 10 }}>
-        <label>Node Color: </label>
-        <div style={{ display: "flex", gap: 5, marginTop: 5 }}>
-          {colors.map((c) => (
-            <div
-              key={c}
-              onClick={() => updateNodeColor(c)}
-              style={{
-                width: 20,
-                height: 20,
-                backgroundColor: c,
-                border: node.color === c ? "3px solid #000" : "1px solid #333",
-                cursor: "pointer",
-              }}
-            />
-          ))}
+      {/* The selected board is also shown on a neutral surface. */}
+      <div style={rowStyle}>
+        <div
+          data-testid="panel-board-surface"
+          style={{
+            display: "inline-block",
+            padding: 6,
+            backgroundColor: "#ffffff",
+            border: "1px solid #cbd5e1",
+            borderRadius: 6,
+          }}
+        >
+          <BoardComponent board={node.board} />
         </div>
       </div>
-      <button onClick={toggleChildren}>
-        {node.hiddenChildren ? "Show Children" : "Hide Children"}
-      </button>
-      <button onClick={hideyellow} style={{ marginTop: "10px" }}>
-        Hide Yellow Nodes
-      </button>
-      <button
-        onClick={deleteChildren}
-        style={{ marginTop: "10px" }}
-      >
-        Delete Children Nodes
-      </button>
-      <button onClick={() => showGreen()} style={{ marginTop: "10px" }}>
-        Show Green nodes
-      </button>
-      <button onClick={saveGraph} style={{ marginTop: "10px" }}>
-        Save Graph
-      </button>
+
+      <div style={rowStyle}>
+        <button disabled={busy} onClick={addLegalMoves}>
+          Add legal moves
+        </button>{" "}
+        <button
+          disabled={busy}
+          onClick={addLegalMoves2}
+          title="Expand two plies (capped)"
+        >
+          Add 2 levels of legal moves
+        </button>{" "}
+        <button
+          disabled={busy}
+          onClick={applyExplorationRules}
+          title="Apply rules 1–3 to the whole graph"
+        >
+          Apply exploration rules
+        </button>
+        {explorationStats && (
+          <div>
+            <small>
+              Last pass: {explorationStats.nodesRemoved} unknown nodes /{" "}
+              {explorationStats.edgesCut} edges pruned ·{" "}
+              {explorationStats.outcomeWin} certain wins /{" "}
+              {explorationStats.outcomeLoss} losses · rule hits{" "}
+              {explorationStats.ruleHits.rule1}/{explorationStats.ruleHits.rule2}/
+              {explorationStats.ruleHits.rule3} ·{" "}
+              {explorationStats.decidedChildrenKept} decided children kept.
+            </small>
+          </div>
+        )}
+      </div>
+      <div style={rowStyle}>
+        <button disabled={busy} onClick={markUnsafeMoves}>
+          Mark risky moves
+        </button>
+        <div>
+          <small>
+            Adds a structured <em>must not choose</em> note to risky incoming
+            moves. This is a manual annotation, not a minimax result.
+          </small>
+        </div>
+      </div>
+
+      <div style={rowStyle}>
+        <strong>Node status</strong>
+        {COLOR_SWATCH_GROUPS.map((group) => (
+          <div key={group.title} style={{ marginTop: 8 }}>
+            <div>
+              <small>
+                <strong>{group.title}</strong> — {group.description}
+              </small>
+            </div>
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 5,
+                marginTop: 5,
+              }}
+            >
+              {group.swatches.map((swatch) => {
+                const swatchMeta = getStatusMeta(swatch.color);
+                const selected = node.color === swatch.color;
+                return (
+                  <button
+                    key={swatch.color}
+                    type="button"
+                    title={swatch.description}
+                    aria-label={`${group.title}: ${swatch.label}`}
+                    aria-pressed={selected}
+                    onClick={() => updateNodeColor(swatch.color)}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: "3px 6px",
+                      borderRadius: 4,
+                      fontSize: 11,
+                      fontWeight: selected ? 700 : 500,
+                      backgroundColor: swatchMeta.chipBg,
+                      color: swatchMeta.chipText,
+                      border: selected
+                        ? `3px solid ${swatchMeta.accent}`
+                        : `1px solid ${swatchMeta.accent}`,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <span aria-hidden="true">{swatchMeta.icon}</span>
+                    <span>{swatch.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={rowStyle}>
+        <button onClick={toggleChildren}>
+          {node.hiddenChildren ? "Show children" : "Hide children"}
+        </button>{" "}
+        <button onClick={hideNode}>Hide node</button>
+      </div>
+      <div style={rowStyle}>
+        <button
+          onClick={hideResolved}
+          title="Hide decided / no moves / loop / certain win / losing nodes"
+        >
+          Hide resolved positions
+        </button>{" "}
+        <button
+          onClick={showPlayLine}
+          title="Show only nodes with a green work memo"
+        >
+          Show play line only
+        </button>
+        <div>
+          <small>
+            Hides decided, no-moves, loop, certain-win and losing nodes.
+            Evaluation results stay in the graph for reuse.
+          </small>
+        </div>
+      </div>
+      <div style={rowStyle}>
+        <button onClick={deleteChildren}>Delete all children</button>{" "}
+        <button onClick={deleteNode}>Delete node (and subtree)</button>
+      </div>
+
+      <div style={rowStyle}>
+        <button disabled={busy || saveStatus === "saving"} onClick={saveGraph}>
+          {saveStatus === "saving" ? "Saving…" : "Save graph"}
+        </button>{" "}
+        {saveStatus === "saved" && <span role="status">Saved</span>}
+        {saveStatus === "error" && <span role="alert">Save failed</span>}
+      </div>
+
+      <p style={{ marginTop: 12 }}>
+        <small>Game: {gameType}</small>
+      </p>
     </div>
   );
 };

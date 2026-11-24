@@ -13,17 +13,41 @@
     "node_0": {
       "id": "node_0",
       "board": [
-        [[{ "type": "S", "player": "B" }], [{}], [{}], [{}]],
-        [[{}], [{}], [{}], [{}]],
-        [[{}], [{}], [{}], [{}]],
-        [[{}], [{}], [{}], [{}]]
+        [
+          [],
+          [],
+          [],
+          []
+        ],
+        [
+          [],
+          [],
+          [],
+          []
+        ],
+        [
+          [],
+          [],
+          [],
+          []
+        ],
+        [
+          [],
+          [],
+          [],
+          []
+        ]
       ],
       "currentPlayer": "B",
       "children": [],
+      "color": "#ffffff",
+      "hidden": false,
+      "hiddenChildren": false,
       "position": {
         "x": 100,
         "y": 100
-      }
+      },
+      "lastMove": null
     }
   },
   "selectedNodeId": "node_0"

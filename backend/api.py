@@ -1,332 +1,101 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
-from typing import List, Optional, Tuple, Set
+"""FastAPI backend for the Neutreeko / Pyrga game-tree explorer.
+
+Run from the repo root with ``uvicorn backend.api:app --reload`` or from this
+directory with ``uvicorn api:app --reload``; both import styles are supported.
+"""
+
+from __future__ import annotations
+
 import os
-import json
-import redis
+from typing import Optional
 
-app = FastAPI()
-
-# ----------------- Redis設定 -----------------
-REDIS_URL = os.getenv("REDIS_URL")
-redis_client = redis.from_url(REDIS_URL) if REDIS_URL else None
-
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-# 環境変数からCORS許可オリジンを取得（カンマ区切りで複数指定可能）
-ALLOWED_ORIGINS = os.getenv(
-    "ALLOWED_ORIGINS",
-    "http://localhost:3000,http://127.0.0.1:3000"
-).split(",")
+try:
+    from . import rules, schemas, storage
+except ImportError:  # running as ``uvicorn api:app`` from backend/
+    import rules  # type: ignore[no-redef]
+    import schemas  # type: ignore[no-redef]
+    import storage  # type: ignore[no-redef]
+
+app = FastAPI(
+    title="Neutreeko / Pyrga game tree API",
+    version="2.0.0",
+    description="Legal move generation, position analysis and graph persistence.",
+)
+
+
+def _allowed_origins() -> list[str]:
+    raw = os.getenv(
+        "ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000"
+    )
+    origins = [origin.strip().rstrip("/") for origin in raw.split(",")]
+    return [origin for origin in origins if origin]
+
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
+    allow_origins=_allowed_origins(),
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "X-API-Token"],
 )
 
-# ----------------- 共通定数 -----------------
-EMPTY = "."
-BLACK = "B"
-WHITE = "W"
-DIRECTIONS_8 = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
-DIRECTIONS_4 = [(-1, 0), (1, 0), (0, -1), (0, 1)]  # S用
+# Optional shared secret for write endpoints.  Unset by default so local
+# development needs no configuration, but deployable without exposing
+# /save_graph to the public internet.
+API_TOKEN = os.getenv("API_TOKEN")
 
 
-# ----------------- データモデル -----------------
-class GraphData(BaseModel):
-    nodes: List[dict]
-    edges: List[dict]
-    nodesMap: dict
-    selectedNodeId: str
+def require_write_token(x_api_token: Optional[str] = Header(default=None)) -> None:
+    if API_TOKEN and x_api_token != API_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid or missing API token")
 
 
-class NeutreekoMoveRequest(BaseModel):
-    board: List[List[str]]  # 5x5
-    player: str
+@app.get("/health")
+def health() -> dict:
+    return {"status": "ok", "storage": "redis" if storage.redis_client else "file"}
 
 
-class PyrgaMoveRequest(BaseModel):
-    board: List[List[List[str]]]  # 4x4, 1セルに複数コマ
-    player: str
-    last_move: Optional[Tuple[int, int, str]] = None
-
-
-class MoveResponse(BaseModel):
-    moves: List[List[int]]  # Neutreeko: [r1,c1,r2,c2], Pyrga: [r,c,piece_index]
-
-
-# ----------------- グラフファイル -----------------
-GRAPH_FILES = {
-    "neutreeko": "data/neutreeko_graph.json",
-    "pyrga": "data/pyrga_graph.json",
-}
-
-
-def create_initial_graph(game_type: str):
-    if game_type == "neutreeko":
-        root_id = "node_0"
-        board = [
-            [".", "W", ".", "W", "."],
-            [".", ".", "B", ".", "."],
-            [".", ".", ".", ".", "."],
-            [".", ".", "W", ".", "."],
-            [".", "B", ".", "B", "."],
-        ]
-    else:  # pyrga
-        root_id = "node_0"
-        BOARD_SIZE = 4
-        board = [["." for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)]
-
-    root_node = {
-        "id": root_id,
-        "board": board,
-        "currentPlayer": "B",
-        "children": [],
-    }
-    return {
-        "nodes": [
-            {"id": root_id, "data": {"label": "root"}, "position": {"x": 100, "y": 100}}
-        ],
-        "edges": [],
-        "nodesMap": {root_id: root_node},
-        "selectedNodeId": root_id,
-    }
-
-
-# ----------------- API -----------------
 @app.get("/load_graph")
-def load_graph(game_type: str):
-    if game_type not in GRAPH_FILES:
-        return {"error": "Unknown game type"}
-
-    # Redisがある場合はRedisから読み込み
-    if redis_client:
-        key = f"graph:{game_type}"
-        data = redis_client.get(key)
-        if data:
-            return json.loads(data)
-        return create_initial_graph(game_type)
-
-    # ローカル開発用：ファイルから読み込み
-    file = GRAPH_FILES[game_type]
-    if os.path.exists(file):
-        with open(file, "r") as f:
-            return json.load(f)
-    return create_initial_graph(game_type)
+def load_graph(game_type: schemas.GameType) -> dict:
+    """Load the saved graph, normalizing legacy board shapes on the way in."""
+    try:
+        return storage.load_graph(game_type)
+    except storage.StorageError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@app.post("/save_graph")
-def save_graph(data: dict, game_type: str):
-    if game_type not in GRAPH_FILES:
-        return {"error": "Unknown game type"}
-
-    # Redisがある場合はRedisに保存
-    if redis_client:
-        key = f"graph:{game_type}"
-        redis_client.set(key, json.dumps(data, ensure_ascii=False))
-        return {"status": "ok"}
-
-    # ローカル開発用：ファイルに保存
-    file = GRAPH_FILES[game_type]
-    os.makedirs(os.path.dirname(file), exist_ok=True)
-    with open(file, "w") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+@app.post("/save_graph", dependencies=[Depends(require_write_token)])
+def save_graph(data: schemas.GraphData, game_type: schemas.GameType) -> dict:
+    """Validate and atomically persist the whole graph."""
+    try:
+        storage.save_graph(game_type, data.model_dump())
+    except storage.StorageError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {"status": "ok"}
 
 
-# ----------------- Pyrga用データモデル -----------------
-class PyrgaPiece(BaseModel):
-    type: str  # "S", "T", "C"
-    player: str  # "B" or "W"
-    direction: Optional[int] = None  # 三角のみ、0-3など
+@app.post("/legal_moves/neutreeko", response_model=schemas.MoveResponse)
+def legal_moves_neutreeko(req: schemas.NeutreekoMoveRequest) -> dict:
+    """All legal moves for a 5x5 Neutreeko position.
+
+    Unlike the previous implementation this does NOT silently delete moves that
+    let the opponent win.  Those are reported in ``unsafe_moves`` instead, and
+    immediate wins / decided positions are reported explicitly.
+    """
+    return rules.neutreeko_analysis(req.board, req.player)
 
 
-class PyrgaMoveRequest(BaseModel):
-    board: List[List[List[PyrgaPiece]]]  # dict で受け取る
-    player: str
-    last_move: Optional[Tuple[int, int, PyrgaPiece]] = None
+@app.post("/legal_moves/pyrga", response_model=schemas.MoveResponse)
+def legal_moves_pyrga(req: schemas.PyrgaMoveRequest) -> dict:
+    """Legal placements for a 4x4 Pyrga position.
 
-
-class MoveResponse(BaseModel):
-    moves: List[List[int]]  # [r, c, piece_index]
-
-
-# ----------------- Helper -----------------
-def is_inside(r, c):
-    return 0 <= r < 4 and 0 <= c < 4
-
-
-def can_place(cell: List[dict], piece_type: str) -> bool:
-    # 同じマスに同じタイプは置けない
-    if len(cell) >= 3:
-        return False
-    return not any(p["type"] == piece_type for p in cell)
-
-
-def empty_cells(board: List[List[List[dict]]]):
-    cells = []
-    for r in range(4):
-        for c in range(4):
-            if board[r][c] is None:
-                board[r][c] = []
-            if (
-                can_place(board[r][c], "S")
-                or can_place(board[r][c], "T")
-                or can_place(board[r][c], "C")
-            ):
-                cells.append((r, c))
-    return cells
-
-
-def check_neutreeko_win(board: List[List[str]], player: str) -> bool:
-    BOARD_SIZE = len(board)
-    DIRECTIONS = DIRECTIONS_8
-    for r in range(BOARD_SIZE):
-        for c in range(BOARD_SIZE):
-            if board[r][c] == player:
-                for dr, dc in DIRECTIONS:
-                    rr, cc = r, c
-                    count = 0
-                    for _ in range(3):
-                        if (
-                            0 <= rr < BOARD_SIZE
-                            and 0 <= cc < BOARD_SIZE
-                            and board[rr][cc] == player
-                        ):
-                            count += 1
-                            rr += dr
-                            cc += dc
-                    if count == 3:
-                        return True
-    return False
-
-
-def opponent_moves_lead_to_win(board: list[list[str]], opponent: str) -> bool:
-    """相手が次の手で勝利する手があるか"""
-    BOARD_SIZE = len(board)
-    for r in range(BOARD_SIZE):
-        for c in range(BOARD_SIZE):
-            if board[r][c] == opponent:
-                for dr, dc in DIRECTIONS_8:
-                    nr, nc = r + dr, c + dc
-                    while (
-                        0 <= nr < BOARD_SIZE
-                        and 0 <= nc < BOARD_SIZE
-                        and board[nr][nc] == EMPTY
-                    ):
-                        nr += dr
-                        nc += dc
-                    end_r, end_c = nr - dr, nc - dc
-                    if (end_r, end_c) != (r, c):
-                        # 仮に相手がこの手を打った盤面
-                        new_board = [row[:] for row in board]
-                        new_board[end_r][end_c] = opponent
-                        new_board[r][c] = EMPTY
-                        if check_neutreeko_win(new_board, opponent):
-                            return True
-    return False
-
-
-def board_move_key(r1, c1, r2, c2):
-    return (r1, c1, r2, c2)
-
-
-# ----------------- Legal Moves -----------------
-@app.post("/legal_moves/neutreeko", response_model=MoveResponse)
-def legal_moves(req: NeutreekoMoveRequest):
-    BOARD_SIZE = len(req.board)
-    board = req.board
-    player = req.player
-    moves = []
-    seen: Set[Tuple[int, int, int, int]] = set()
-
-    opponent = "W" if player == "B" else "B"
-
-    for r in range(BOARD_SIZE):
-        for c in range(BOARD_SIZE):
-            if board[r][c] == player:
-                for dr, dc in DIRECTIONS_8:
-                    nr, nc = r + dr, c + dc
-                    while (
-                        0 <= nr < BOARD_SIZE
-                        and 0 <= nc < BOARD_SIZE
-                        and board[nr][nc] == EMPTY
-                    ):
-                        nr += dr
-                        nc += dc
-                    end_r, end_c = nr - dr, nc - dc
-                    if (end_r, end_c) != (r, c):
-                        # 仮にこの手を打った盤面
-                        new_board = [row[:] for row in board]
-                        new_board[end_r][end_c] = player
-                        new_board[r][c] = EMPTY
-
-                        # 相手がこの後最善で勝てるか
-                        if not opponent_moves_lead_to_win(new_board, opponent):
-                            key = board_move_key(r, c, end_r, end_c)
-                            if key not in seen:
-                                seen.add(key)
-                                moves.append([r, c, end_r, end_c])
-
-    return {"moves": moves}
-
-
-@app.post("/legal_moves/pyrga", response_model=MoveResponse)
-def legal_moves_pyrga(req: PyrgaMoveRequest):
-    board = req.board
-    piece_types = ["S", "T", "C"]
-    moves = []
-
-    # board のセルが None や {} だったら空配列に変換
-    for r in range(4):
-        for c in range(4):
-            if not isinstance(board[r][c], list):
-                board[r][c] = []
-            else:
-                # dict のリストを PyrgaPiece に変換
-                for i, p in enumerate(board[r][c]):
-                    if not isinstance(p, PyrgaPiece):
-                        board[r][c][i] = PyrgaPiece(**p)
-
-    last_piece = None
-    if req.last_move:
-        lr, lc, last_piece_dict = req.last_move
-        if isinstance(last_piece_dict, dict):
-            last_piece = PyrgaPiece(**last_piece_dict)
-        else:
-            last_piece = last_piece_dict
-    else:
-        # 初手: 空きセルにどのコマでも置ける
-        for r, c in empty_cells(board):
-            for idx, _ in enumerate(piece_types):
-                moves.append([r, c, idx])
-        return {"moves": moves}
-
-    lr, lc = req.last_move[0], req.last_move[1]
-
-    if last_piece.type == "S":
-        # 隣接マス
-        for dr, dc in DIRECTIONS_4:
-            nr, nc = lr + dr, lc + dc
-            if is_inside(nr, nc) and can_place(board[nr][nc], last_piece.type):
-                for idx, _ in enumerate(piece_types):
-                    moves.append([nr, nc, idx])
-    elif last_piece.type == "T":
-        # 8方向ライン
-        for dr, dc in DIRECTIONS_8:
-            nr, nc = lr + dr, lc + dc
-            while is_inside(nr, nc) and can_place(board[nr][nc], last_piece.type):
-                for idx, _ in enumerate(piece_types):
-                    moves.append([nr, nc, idx])
-                nr += dr
-                nc += dc
-    elif last_piece.type == "C":
-        # 同じマス
-        if can_place(board[lr][lc], last_piece.type):
-            for idx, _ in enumerate(piece_types):
-                moves.append([lr, lc, idx])
-
-    return {"moves": moves}
+    ``last_move`` is ``[row, col, {"type": ..., "player": ...}]`` and decides
+    where the next piece may be placed.  Moves are ``[row, col, piece_index]``.
+    """
+    try:
+        return rules.pyrga_analysis(req.board, req.player, req.last_move)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
