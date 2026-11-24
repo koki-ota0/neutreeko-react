@@ -123,7 +123,7 @@ describe("useGraphLogic", () => {
     ]);
   });
 
-  it("creates a child for every Neutreeko move without silent pruning", async () => {
+  it("skips unsafe one-move-loss moves before creating children", async () => {
     installFetch((url) => {
       if (url.includes("/load_graph")) return graphFor("neutreeko");
       if (url.includes("/legal_moves/neutreeko")) {
@@ -147,13 +147,54 @@ describe("useGraphLogic", () => {
     await act(async () => {
       await result.current.addLegalMovesFromApi("node_0");
     });
-    expect(result.current.nodesMap.node_0.children).toHaveLength(2);
-    expect(result.current.edges).toHaveLength(2);
+    expect(result.current.nodesMap.node_0.children).toHaveLength(1);
+    expect(result.current.edges).toHaveLength(1);
     expect(result.current.nodesMap.node_0.analysis?.unsafeMoves).toHaveLength(1);
 
     const [first] = result.current.nodesMap.node_0.children;
+    // Only the safe move became a child; the unsafe move was never added.
+    expect(result.current.nodesMap[first].move).toEqual([1, 2, 2, 2]);
     expect((result.current.nodesMap[first].board as string[][])[2][2]).toBe("B");
     expect((result.current.nodesMap[first].board as string[][])[1][2]).toBe(".");
+    await act(async () => {
+      result.current.markUnsafeMoves("node_0");
+    });
+    // No unsafe child exists to annotate after the new expansion behaviour.
+    expect(result.current.nodesMap[first].moveNote).toBeNull();
+  });
+
+  it("marks the parent Losing when every legal move loses in one reply", async () => {
+    installFetch((url) => {
+      if (url.includes("/load_graph")) return graphFor("neutreeko");
+      if (url.includes("/legal_moves/neutreeko")) {
+        return {
+          body: {
+            moves: [
+              [1, 2, 2, 2],
+              [4, 1, 3, 0],
+            ],
+            winning_moves: [],
+            unsafe_moves: [
+              [1, 2, 2, 2],
+              [4, 1, 3, 0],
+            ],
+            game_over: false,
+            winner: null,
+          },
+        };
+      }
+      return { status: 404, body: {} };
+    });
+
+    const { result } = await mount("neutreeko");
+    await act(async () => {
+      await result.current.addLegalMovesFromApi("node_0");
+    });
+
+    expect(result.current.nodesMap.node_0.children).toHaveLength(0);
+    expect(result.current.edges).toHaveLength(0);
+    expect(result.current.nodesMap.node_0.outcome).toBe("loss");
+    expect(result.current.nodesMap.node_0.color).toBe(POSITION_COLORS.losing);
   });
 
   it("puts the decided colour on the reached child and makes its parent Losing", async () => {
@@ -301,42 +342,46 @@ describe("useGraphLogic", () => {
     expect(result.current.nodesMap.node_0.color).toBe(POSITION_COLORS.unanalyzed);
   });
 
-  it("marks risky incoming moves without claiming a minimax loss", async () => {
+  it("still annotates risky children that came from an older graph", async () => {
     installFetch((url) => {
-      if (url.includes("/load_graph")) return graphFor("neutreeko");
-      if (url.includes("/legal_moves/neutreeko")) {
-        return {
-          body: {
-            moves: [
-              [1, 2, 2, 2],
-              [4, 1, 3, 0],
-            ],
-            winning_moves: [],
-            unsafe_moves: [[4, 1, 3, 0]],
-            game_over: false,
-            winner: null,
-          },
+      if (url.includes("/load_graph")) {
+        const graph = graphFor("neutreeko");
+        const body = graph.body as Record<string, unknown>;
+        const nodesMap = body.nodesMap as Record<string, Record<string, unknown>>;
+        nodesMap.node_0.analysis = {
+          winningMoves: [],
+          unsafeMoves: [[4, 1, 3, 0]],
+          gameOver: false,
+          winner: null,
         };
+        nodesMap.node_0.children = ["node_1", "node_2"];
+        nodesMap.node_1 = {
+          id: "node_1", board: NEUTREEKO_INITIAL_BOARD, currentPlayer: "W",
+          parentId: "node_0", children: [], color: NODE_COLORS.unanalyzed,
+          hidden: false, hiddenChildren: false, move: [1, 2, 2, 2],
+        };
+        nodesMap.node_2 = {
+          id: "node_2", board: NEUTREEKO_INITIAL_BOARD, currentPlayer: "W",
+          parentId: "node_0", children: [], color: NODE_COLORS.unanalyzed,
+          hidden: false, hiddenChildren: false, move: [4, 1, 3, 0],
+        };
+        return graph;
       }
       return { status: 404, body: {} };
     });
+
     const { result } = await mount("neutreeko");
-    await act(async () => {
-      await result.current.addLegalMovesFromApi("node_0");
-    });
     await act(async () => {
       result.current.markUnsafeMoves("node_0");
     });
-    // A risky move is a structured note, not a proven losing outcome.
+
+    // Legacy children keep the structured note, without a minimax claim.
+    expect(result.current.nodesMap.node_1.moveNote).toBeNull();
+    expect(result.current.nodesMap.node_2.moveNote).toBe("mustNotChoose");
     expect(result.current.nodesMap.node_0.color).toBe(
       POSITION_COLORS.unanalyzed,
     );
-    expect(result.current.nodesMap.node_0.outcome).toBe("unknown");
-    const children = result.current.nodesMap.node_0.children;
-    expect(result.current.nodesMap[children[0]].moveNote).toBeNull();
-    expect(result.current.nodesMap[children[1]].moveNote).toBe("mustNotChoose");
-    // The children themselves are not painted with the note colour.
-    expect(result.current.nodesMap[children[1]].color).toBe(
+    expect(result.current.nodesMap.node_2.color).toBe(
       POSITION_COLORS.unanalyzed,
     );
   });

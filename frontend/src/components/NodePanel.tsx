@@ -136,8 +136,8 @@ export const NodePanel: React.FC<NodePanelProps> = ({
         {node.analysis && (
           <p style={{ margin: "4px 0" }}>
             <small>
-              Winning moves: {node.analysis.winningMoves.length} · Risky moves:{" "}
-              {node.analysis.unsafeMoves.length}
+              Winning moves: {node.analysis.winningMoves.length} · Risky moves
+              skipped: {node.analysis.unsafeMoves.length}
             </small>
           </p>
         )}
@@ -198,8 +198,9 @@ export const NodePanel: React.FC<NodePanelProps> = ({
         </button>
         <div>
           <small>
-            Adds a structured <em>must not choose</em> note to risky incoming
-            moves. This is a manual annotation, not a minimax result.
+            Unsafe moves are now <em>excluded from expansion</em>. This only
+            adds a structured <em>must not choose</em> note to risky children
+            that older graphs had already created; it is not a minimax result.
           </small>
         </div>
       </div>
