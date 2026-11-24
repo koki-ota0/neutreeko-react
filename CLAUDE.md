@@ -148,10 +148,22 @@ expansion and from the explicit button; `BoardNode` shows ✓ / × outcome badge
 `backend/data/neutreeko_graph.json`, seeding old `#285294=win`,
 `#ffff99=loss`, `#ff99ff=loss`, then writing `outcome`, `analysis`, recovered
 `move`, `#0f766e` certain wins and `#ffff99` losses. Result: 7,992 → 7,881
-nodes, 8,360 → 8,231 edges, 292 wins / 2,875 losses / 4,825 unknowns, 111
+nodes, 8,360 → 8,231 edges, 292 wins / 2,875 losses / 4,714 unknowns, 111
 unknown nodes removed, 8 decided children kept, 0 dangling edges. A
 gitignored backup is at `backend/data/neutreeko_graph.json.bak`. Re-running
 the CLI dry-run is idempotent (0 further prunes).
+
+## GitHub Pages / static mode
+
+`.github/workflows/pages.yml` deploys `main` to
+<https://koki-ota0.github.io/neutreeko-react/> with `actions/deploy-pages`.
+`npm run build:pages` runs `frontend/scripts/build-pages.mjs`: it minifies the
+canonical graphs into gitignored `frontend/public/data/` and builds with
+`PUBLIC_URL=/neutreeko-react`, `REACT_APP_STATIC_DATA=1`, and an empty
+`REACT_APP_API_URL`. In static mode `useGraphLogic` loads the bundled graph,
+`frontend/src/game/rules.ts` replaces `/legal_moves/*`, and `saveGraph`
+downloads JSON instead of POSTing. Do not make the Pages build depend on
+`127.0.0.1` or an external API; the Vercel/API build stays unchanged.
 
 ## Conventions / gotchas
 

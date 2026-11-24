@@ -47,6 +47,7 @@ Open <http://localhost:3000>, pick a game, select the root node and click
 | Where | Variable | Purpose |
 | --- | --- | --- |
 | frontend | `REACT_APP_API_URL` | Backend base URL. **Baked in at build time** — changing it requires a rebuild. See `frontend/.env.example`. |
+| frontend | `REACT_APP_STATIC_DATA` | `1` builds the self-contained GitHub Pages viewer (bundled graph JSON + browser-side move rules); unset uses the API. |
 | frontend | `REACT_APP_API_TOKEN` | Sent as `X-API-Token` when the backend requires a write token. |
 | backend | `ALLOWED_ORIGINS` | Comma-separated browser origins for CORS. Defaults to localhost:3000; **must include the deployed Vercel origin** or the browser will block every request. |
 | backend | `API_TOKEN` | When set, `POST /save_graph` requires header `X-API-Token`. Leave unset for local dev. |
@@ -264,7 +265,7 @@ a gitignored backup at `backend/data/neutreeko_graph.json.bak`:
 | Before | After |
 | --- | --- |
 | 7,992 nodes / 8,360 edges | 7,881 nodes / 8,231 edges |
-| no `outcome` / `analysis` / `move` | 292 `win`, 2,875 `loss`, 4,825 `unknown`; analysis and moves persisted |
+| no `outcome` / `analysis` / `move` | 292 `win`, 2,875 `loss`, 4,714 `unknown`; analysis and moves persisted |
 | old marker colours | 292 `#0f766e`, 2,875 `#ffff99`; 0 nodes retain `#285294` / `#ff99ff` |
 
 111 unknown nodes were pruned, 8 decided children were kept, and there were 0
@@ -283,6 +284,11 @@ you need a long-term restore point: `.gitignore` excludes `backend/data/*.bak`.
 - `backend/api.py` — FastAPI wiring, CORS, optional write auth.
 - `frontend/src/constants/colors.ts` — single source of truth for colour semantics.
 - `frontend/src/game/moves.ts` — pure board/move helpers (unit tested).
+- `frontend/src/game/rules.ts` — browser port of the backend legal-move rules
+  for the static Pages build (unit tested).
+- `frontend/src/game/staticMode.ts` — Pages asset URLs and static-mode flag.
+- `frontend/scripts/build-pages.mjs` — bundles graph snapshots and builds with
+  the correct `PUBLIC_URL` / static-mode environment.
 - `frontend/src/game/exploration.ts` — pure exploration rules + DAG-safe pruning.
 - `frontend/src/hooks/useGraphLogic.ts` — graph state. All writes go through a
   ref-backed `commit` helper so async expansions never read stale snapshots.
@@ -304,6 +310,15 @@ syntax that CRA 5's TypeScript 4.9 cannot parse.
 
 ## Deployment
 
+- GitHub Pages: <https://koki-ota0.github.io/neutreeko-react/>.
+  `.github/workflows/pages.yml` builds on every push to `main` with
+  `frontend/scripts/build-pages.mjs` and deploys via `actions/deploy-pages`.
+  `npm run build:pages` copies `backend/data/*_graph.json` into
+  `frontend/public/data/` (minified, gitignored), sets `PUBLIC_URL` to the
+  repository subpath and `REACT_APP_STATIC_DATA=1`. Pages has no FastAPI
+  process: legal moves are computed by `frontend/src/game/rules.ts`, and
+  **Download graph JSON** exports edits from the browser tab. The bundled
+  snapshot is read-only; the Vercel/API deployment remains the writable one.
 - Frontend: Vercel (`vercel.json`). It runs `npm ci --include=dev`,
   `npm run typecheck` and `npm run build`. Set `REACT_APP_API_URL` (and
   `REACT_APP_API_TOKEN` if used) as Vercel environment variables.

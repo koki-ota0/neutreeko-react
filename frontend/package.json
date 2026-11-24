@@ -27,6 +27,7 @@
     "test:ci": "CI=true react-scripts test --watchAll=false",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src --ext .ts,.tsx",
+    "build:pages": "node scripts/build-pages.mjs",
     "eject": "react-scripts eject"
   },
   "proxy": "http://127.0.0.1:8000",
