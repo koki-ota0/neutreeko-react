@@ -24,6 +24,10 @@ export const GraphContainer: React.FC<GraphContainerProps> = ({
   const selectedNode = logic.selectedNodeId
     ? logic.nodesMap[logic.selectedNodeId]
     : undefined;
+  const totalNodeCount = Object.keys(logic.nodesMap).length;
+  const visibleNodeCount = Object.values(logic.nodesMap).filter(
+    (node) => !node.hidden,
+  ).length;
 
   return (
     <ReactFlowProvider>
@@ -91,6 +95,9 @@ export const GraphContainer: React.FC<GraphContainerProps> = ({
               updateNodeColor={logic.updateNodeColor}
               toggleChildren={() => logic.toggleChildren(selectedNode.id)}
               hideResolved={logic.hideResolved}
+              showAllNodes={logic.showAllNodes}
+              visibleNodeCount={visibleNodeCount}
+              totalNodeCount={totalNodeCount}
               deleteChildren={() => logic.deleteChildren(selectedNode.id)}
               showPlayLine={logic.showPlayLine}
               markUnsafeMoves={() => logic.markUnsafeMoves(selectedNode.id)}

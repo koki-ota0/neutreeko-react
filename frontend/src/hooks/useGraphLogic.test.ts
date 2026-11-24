@@ -339,7 +339,7 @@ describe("useGraphLogic", () => {
     );
   });
 
-  it("hides decided, certain-win and losing nodes but not notes or memos", async () => {
+  it("filters resolved nodes and un-hides other previously hidden nodes", async () => {
     installFetch((url) => {
       if (url.includes("/load_graph")) {
         const graph = graphFor("neutreeko");
@@ -370,12 +370,18 @@ describe("useGraphLogic", () => {
         );
         nodesMap.node_4 = child("node_4", POSITION_COLORS.losing, "loss");
         nodesMap.node_5 = child("node_5", POSITION_COLORS.unanalyzed);
+        nodesMap.node_6 = {
+          ...child("node_6", POSITION_COLORS.unanalyzed),
+          hidden: true,
+          hiddenChildren: true,
+        };
         nodesMap.node_0.children = [
           "node_1",
           "node_2",
           "node_3",
           "node_4",
           "node_5",
+          "node_6",
         ];
         return graph;
       }
@@ -391,9 +397,64 @@ describe("useGraphLogic", () => {
     expect(result.current.nodesMap.node_0.hidden).toBe(false); // structured note
     expect(result.current.nodesMap.node_2.hidden).toBe(false); // manual memo
     expect(result.current.nodesMap.node_5.hidden).toBe(false); // unanalyzed
+    expect(result.current.nodesMap.node_6.hidden).toBe(false); // saved-hidden node restored
+    expect(result.current.nodesMap.node_6.hiddenChildren).toBe(false);
+    // ReactFlow receives the same hidden flags, not just nodesMap.
+    expect(
+      result.current.nodes.find((node) => node.id === "node_3")?.hidden,
+    ).toBe(true);
+    expect(
+      result.current.nodes.find((node) => node.id === "node_4")?.hidden,
+    ).toBe(true);
+    expect(
+      result.current.nodes.find((node) => node.id === "node_5")?.hidden,
+    ).toBe(false);
+    expect(
+      result.current.nodes.find((node) => node.id === "node_6")?.hidden,
+    ).toBe(false);
     // Hiding must not delete reusable evaluation results.
     expect(result.current.nodesMap.node_3.outcome).toBe("win");
     expect(result.current.nodesMap.node_4.outcome).toBe("loss");
+  });
+
+  it("showAllNodes restores every saved hidden node and edge", async () => {
+    installFetch((url) => {
+      if (url.includes("/load_graph")) {
+        const graph = graphFor("neutreeko");
+        const body = graph.body as Record<string, unknown>;
+        const nodesMap = body.nodesMap as Record<string, Record<string, unknown>>;
+        nodesMap.node_0.hidden = true;
+        nodesMap.node_0.hiddenChildren = true;
+        nodesMap.node_1 = {
+          id: "node_1",
+          board: NEUTREEKO_INITIAL_BOARD,
+          currentPlayer: "W",
+          parentId: "node_0",
+          children: [],
+          color: POSITION_COLORS.certainWin,
+          hidden: true,
+          hiddenChildren: true,
+          outcome: "win",
+        };
+        nodesMap.node_0.children = ["node_1"];
+        body.edges = [
+          { id: "e_0_1", source: "node_0", target: "node_1", hidden: true },
+        ];
+        return graph;
+      }
+      return { status: 404, body: {} };
+    });
+
+    const { result } = await mount("neutreeko");
+    await act(async () => {
+      result.current.showAllNodes();
+    });
+
+    expect(result.current.nodesMap.node_0.hidden).toBe(false);
+    expect(result.current.nodesMap.node_0.hiddenChildren).toBe(false);
+    expect(result.current.nodesMap.node_1.hidden).toBe(false);
+    expect(result.current.nodes.every((node) => !node.hidden)).toBe(true);
+    expect(result.current.edges.every((edge) => !edge.hidden)).toBe(true);
   });
 
   it("deletes a whole subtree and removes its edges", async () => {

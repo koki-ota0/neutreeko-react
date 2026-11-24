@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { POSITION_COLORS } from "../constants/colors";
 import { NEUTREEKO_INITIAL_BOARD } from "../game/moves";
 import { NodePanel } from "./NodePanel";
@@ -27,6 +27,8 @@ const node: MyNodeData = {
   outcome: "win",
 };
 
+const showAllSpy = jest.fn();
+
 const props: React.ComponentProps<typeof NodePanel> = {
   node,
   boardComponent: DummyBoard,
@@ -42,13 +44,19 @@ const props: React.ComponentProps<typeof NodePanel> = {
   updateNodeColor: () => {},
   toggleChildren: () => {},
   hideResolved: () => {},
+  showAllNodes: showAllSpy,
+  visibleNodeCount: 269,
+  totalNodeCount: 7881,
   deleteChildren: () => {},
   showPlayLine: () => {},
   markUnsafeMoves: () => {},
   saveGraph: () => {},
 };
 
-beforeEach(() => boardSpy.mockClear());
+beforeEach(() => {
+  boardSpy.mockClear();
+  showAllSpy.mockClear();
+});
 
 describe("NodePanel readable status", () => {
   it("shows an icon, label, short code and spelled-out outcome", () => {
@@ -82,19 +90,31 @@ describe("NodePanel readable status", () => {
     ).toBeInTheDocument();
   });
 
-  it("explains that Hide resolved includes certain-win and losing nodes", () => {
+  it("explains that Hide resolved is a view filter over all nodes", () => {
     render(React.createElement(NodePanel, props));
 
     expect(
       screen.getByRole("button", { name: "Hide resolved positions" }),
     ).toHaveAttribute(
       "title",
-      "Hide decided / no moves / loop / certain win / losing nodes",
+      "Show all nodes except decided / no moves / loop / certain win / losing",
     );
     expect(
       screen.getByText(
-        /Hides decided, no-moves, loop, certain-win and losing nodes/,
+        /View filter: resolved nodes are hidden and every other node is un-hidden/,
       ),
     ).toBeInTheDocument();
+  });
+
+  it("shows the visible node count and can restore every hidden node", () => {
+    render(React.createElement(NodePanel, props));
+
+    expect(
+      screen.getByText(/Visible: 269 \/ 7881 nodes/),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show all nodes" }),
+    );
+    expect(showAllSpy).toHaveBeenCalledTimes(1);
   });
 });
