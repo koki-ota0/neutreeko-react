@@ -811,17 +811,21 @@ export const useGraphLogic = (gameType: GameType, Board: BoardRenderer) => {
   );
 
   /**
-   * Hides every resolved position: decided / noMoves / loop AND evaluated
-   * certain-win / losing results. Manual memos and structured move notes stay
-   * visible. Hidden nodes are not deleted and remain reusable evidence.
+   * View FILTER: show everything except resolved positions (decided / noMoves /
+   * loop AND evaluated certain-win / losing results). Assigning `hidden` for
+   * every node also un-hides nodes that were already hidden in the saved graph;
+   * a one-way "set true" button looked like a no-op on such graphs. Hidden
+   * nodes are not deleted and remain reusable evidence.
    */
   const hideResolved = useCallback(() => {
     applyVisibility((previous) => {
       const next: NodesMap = {};
       for (const [id, node] of Object.entries(previous)) {
-        next[id] = HIDE_RESOLVED_COLORS.includes(node.color)
-          ? { ...node, hidden: true }
-          : node;
+        next[id] = {
+          ...node,
+          hidden: HIDE_RESOLVED_COLORS.includes(node.color),
+          hiddenChildren: false,
+        };
       }
       return next;
     });
@@ -835,7 +839,19 @@ export const useGraphLogic = (gameType: GameType, Board: BoardRenderer) => {
         next[id] = {
           ...node,
           hidden: !PLAY_MEMO_COLORS.includes(node.color),
+          hiddenChildren: false,
         };
+      }
+      return next;
+    });
+  }, [applyVisibility]);
+
+  /** Restore every node and edge, including ones hidden in the saved graph. */
+  const showAllNodes = useCallback(() => {
+    applyVisibility((previous) => {
+      const next: NodesMap = {};
+      for (const [id, node] of Object.entries(previous)) {
+        next[id] = { ...node, hidden: false, hiddenChildren: false };
       }
       return next;
     });
@@ -914,6 +930,7 @@ export const useGraphLogic = (gameType: GameType, Board: BoardRenderer) => {
     onEdgesChange,
     hideResolved,
     showPlayLine,
+    showAllNodes,
     saveGraph,
   };
 };

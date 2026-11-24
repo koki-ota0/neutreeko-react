@@ -23,6 +23,9 @@ interface NodePanelProps {
   updateNodeColor: (color: string) => void;
   toggleChildren: () => void;
   hideResolved: () => void;
+  showAllNodes: () => void;
+  visibleNodeCount: number;
+  totalNodeCount: number;
   deleteChildren: () => void;
   showPlayLine: () => void;
   markUnsafeMoves: () => void;
@@ -46,6 +49,9 @@ export const NodePanel: React.FC<NodePanelProps> = ({
   updateNodeColor,
   toggleChildren,
   hideResolved,
+  showAllNodes,
+  visibleNodeCount,
+  totalNodeCount,
   deleteChildren,
   showPlayLine,
   markUnsafeMoves,
@@ -255,7 +261,7 @@ export const NodePanel: React.FC<NodePanelProps> = ({
       <div style={rowStyle}>
         <button
           onClick={hideResolved}
-          title="Hide decided / no moves / loop / certain win / losing nodes"
+          title="Show all nodes except decided / no moves / loop / certain win / losing"
         >
           Hide resolved positions
         </button>{" "}
@@ -264,11 +270,19 @@ export const NodePanel: React.FC<NodePanelProps> = ({
           title="Show only nodes with a green work memo"
         >
           Show play line only
+        </button>{" "}
+        <button onClick={showAllNodes} title="Unhide every saved node">
+          Show all nodes
         </button>
         <div>
           <small>
-            Hides decided, no-moves, loop, certain-win and losing nodes.
-            Evaluation results stay in the graph for reuse.
+            View filter: resolved nodes are hidden and every other node is
+            un-hidden. Evaluation results stay in the graph for reuse.
+          </small>
+        </div>
+        <div>
+          <small role="status">
+            Visible: {visibleNodeCount} / {totalNodeCount} nodes
           </small>
         </div>
       </div>
