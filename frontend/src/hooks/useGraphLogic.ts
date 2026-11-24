@@ -1,590 +1,919 @@
-import { useState, useEffect } from "react";
-import { Node, Edge, NodeChange, applyNodeChanges } from "react-flow-renderer";
-import { MyNodeData } from "../types/MyNodeData";
+import {
+  Dispatch,
+  MutableRefObject,
+  SetStateAction,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import {
+  applyEdgeChanges,
+  applyNodeChanges,
+  Edge,
+  EdgeChange,
+  Node,
+  NodeChange,
+} from "react-flow-renderer";
+import {
+  MoveNote,
+  NODE_COLORS,
+  NodeOutcome,
+  OUTCOME_COLORS,
+  HIDE_RESOLVED_COLORS,
+  PLAY_MEMO_COLORS,
+  POSITION_COLORS,
+  SKIP_REEXPANSION_COLORS,
+} from "../constants/colors";
+import { MAX_AUTO_EXPAND_NODES } from "../constants/game";
+import {
+  ExplorationStats,
+  isReusablePositionColor,
+  resolveExploration,
+} from "../game/exploration";
+import {
+  AppliedMove,
+  applyMove,
+  boardKey,
+  lastMoveToPayload,
+  moveKey,
+  normalizeBoard,
+  normalizeLastMove,
+  opponent,
+  parseAnalysis,
+} from "../game/moves";
+import {
+  GameBoard,
+  GameType,
+  MyNodeData,
+  NodesMap,
+  PyrgaLastMove,
+} from "../types/MyNodeData";
+import { BoardRenderer, FlowNode } from "../types/flow";
+import { Player } from "../types/pyrga";
 
-let idCounter = 0;
-const getId = () => `node_${idCounter++}`;
+// An empty value is valid: CRA's dev-server proxy forwards same-origin
+// /load_graph, /save_graph and /legal_moves/* requests to the backend.
+const API_URL = process.env.REACT_APP_API_URL ?? "http://127.0.0.1:8000";
 
-const API_URL = process.env.REACT_APP_API_URL || "http://127.0.0.1:8000";
+/**
+ * State is mirrored in refs and every write goes through `commit`, so async
+ * chains always read the freshest value instead of a render-time snapshot.
+ * (The old hook read a stale `nodesMap` after awaits, which made "Add 2 Legal
+ * Moves" expand only one ply.)
+ */
+function commit<T>(
+  ref: MutableRefObject<T>,
+  setter: Dispatch<SetStateAction<T>>,
+  updater: (previous: T) => T,
+): T {
+  const next = updater(ref.current);
+  ref.current = next;
+  setter(next);
+  return next;
+}
 
-export const useGraphLogic = (gameType: string) => {
-  const [nodes, setNodes] = useState<Node[]>([]);
+const messageOf = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+const numericId = (id: string): number => {
+  const match = /^node_(\d+)$/.exec(id);
+  return match ? Number(match[1]) : -1;
+};
+
+export const useGraphLogic = (gameType: GameType, Board: BoardRenderer) => {
+  const [nodes, setNodes] = useState<FlowNode[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
-  const [nodesMap, setNodesMap] = useState<{ [key: string]: MyNodeData }>({});
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [lastMove, setLastMove] = useState<[number, number, string] | null>(
-    null,
-  ); // Pyrgaのみ使用
+  const [nodesMap, setNodesMap] = useState<NodesMap>({});
+  const [selectedNodeId, setSelectedState] = useState<string | null>(null);
   const [nodeIndex, setNodeIndex] = useState<Record<string, string>>({});
-  const keyFor = (board: string[][], player: string) =>
-    JSON.stringify({ board, player });
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
+  const [explorationStats, setExplorationStats] =
+    useState<ExplorationStats | null>(null);
 
-  // ===== ユーティリティ =====
-  const getDescendants = (nodeId: string) => {
-    const result: string[] = [];
-    const queue = [...(nodesMap[nodeId]?.children || [])];
-    while (queue.length) {
-      const childId = queue.shift()!;
-      result.push(childId);
-      queue.push(...(nodesMap[childId]?.children || []));
-    }
-    return result;
-  };
-
-  const getChildren = (nodeId: string) => nodesMap[nodeId]?.children || [];
-
-  const addEdge = (edge: Edge) => {
-    setEdges((prev) => {
-      // 既存エッジチェック
-      if (prev.find((e) => e.id === edge.id)) return prev;
-      return [...prev, edge];
-    });
-  };
-
-  const loadGraphFromApi = async () => {
-    try {
-      const res = await fetch(
-        `${API_URL}/load_graph?game_type=${gameType}`,
-      );
-      if (!res.ok) throw new Error("Failed to fetch graph");
-      const data = await res.json();
-
-      setNodesMap(data.nodesMap || {});
-      setNodes(data.nodes || []);
-      setEdges(data.edges || []);
-      setSelectedNodeId(data.selectedNodeId || null);
-
-      const maxId = (data.nodes || []).reduce((max: number, n: Node) => {
-        const num = parseInt(n.id.replace("node_", ""));
-        return isNaN(num) ? max : Math.max(max, num);
-      }, 0);
-      idCounter = maxId + 1;
-      return data;
-    } catch (e) {
-      console.error(e);
-      return { nodesMap: {}, nodes: [], edges: [], selectedNodeId: null };
-    }
-  };
+  const nodesRef = useRef<FlowNode[]>(nodes);
+  const edgesRef = useRef<Edge[]>(edges);
+  const nodesMapRef = useRef<NodesMap>(nodesMap);
+  const nodeIndexRef = useRef<Record<string, string>>(nodeIndex);
+  const selectedRef = useRef<string | null>(null);
+  const nextIdRef = useRef(1);
+  const abortRef = useRef<AbortController | null>(null);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
-    loadGraphFromApi().then((data) => {
-      const idx: Record<string, string> = {};
-
-      const nodes = Object.values(data.nodesMap || {}) as MyNodeData[];
-
-      nodes.forEach((n) => {
-        const key = keyFor(n.board, n.currentPlayer);
-        idx[key] = n.id;
-      });
-
-      setNodeIndex(idx);
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameType]);
-
-  const addNode = (
-    parentId: string | null,
-    board: string[][],
-    currentPlayer: string,
-    index: number,
-    siblingCount: number,
-    color?: string,
-  ) => {
-    const key = keyFor(board, currentPlayer);
-    const newId = getId();
-
-    // ==== 内部データ構築 ====
-    const newNodeData: MyNodeData = {
-      id: newId,
-      board,
-      currentPlayer,
-      parentId: parentId || undefined,
-      children: [],
-      color: color || "#ffffff",
-      hidden: false,
-      hiddenChildren: false,
-      position: { x: 0, y: 0 }, // 仮置き、後で更新
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      abortRef.current?.abort();
     };
+  }, []);
 
-    // ==== 内部データ更新 ====
-    setNodesMap((prev) => {
-      const updated = { ...prev, [newId]: newNodeData };
+  const setSelectedNodeId = useCallback((id: string | null) => {
+    selectedRef.current = id;
+    setSelectedState(id);
+  }, []);
 
-      if (parentId && updated[parentId]) {
-        const parent = updated[parentId];
-        if (!parent.children.includes(newId)) {
-          parent.children = [...parent.children, newId];
-        }
+  const request = useCallback(async (path: string, init: RequestInit = {}) => {
+    const token = process.env.REACT_APP_API_TOKEN;
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...((init.headers as Record<string, string>) || {}),
+    };
+    if (token) headers["X-API-Token"] = token;
+    const response = await fetch(`${API_URL}${path}`, { ...init, headers });
+    if (!response.ok) {
+      let detail = "";
+      try {
+        const body = await response.json();
+        detail = typeof body?.detail === "string" ? `: ${body.detail}` : "";
+      } catch {
+        /* non-JSON error body */
       }
-      return updated;
-    });
+      throw new Error(
+        `${init.method || "GET"} ${path} failed (${response.status})${detail}`,
+      );
+    }
+    return response.json();
+  }, []);
 
-    // ==== nodeIndex 更新 ====
-    setNodeIndex((prev) => ({
-      ...prev,
-      [key]: newId,
-    }));
+  const toFlowNode = useCallback(
+    (node: MyNodeData, position: { x: number; y: number }): FlowNode => ({
+      id: node.id,
+      type: "board",
+      position,
+      data: {
+        board: node.board,
+        color: node.color,
+        moveNote: node.moveNote ?? null,
+        outcome: node.outcome ?? null,
+        Board,
+      },
+      hidden: node.hidden,
+    }),
+    [Board],
+  );
 
-    // ==== 位置計算 ====
-    let position = { x: Math.random() * 400, y: Math.random() * 400 };
+  /** Patch one node in both the game-tree map and its ReactFlow display data. */
+  const patchNode = useCallback(
+    (nodeId: string, patch: Partial<MyNodeData>) => {
+      if (!nodesMapRef.current[nodeId]) return;
+      commit(nodesMapRef, setNodesMap, (previous) => ({
+        ...previous,
+        [nodeId]: { ...previous[nodeId], ...patch },
+      }));
+      commit(nodesRef, setNodes, (previous) =>
+        previous.map((node) =>
+          node.id === nodeId
+            ? {
+                ...node,
+                data: {
+                  ...node.data,
+                  ...(patch.color === undefined ? {} : { color: patch.color }),
+                  ...(patch.outcome === undefined
+                    ? {}
+                    : { outcome: patch.outcome ?? null }),
+                  ...(patch.moveNote === undefined
+                    ? {}
+                    : { moveNote: patch.moveNote ?? null }),
+                },
+              }
+            : node,
+        ),
+      );
+    },
+    [],
+  );
 
-    if (parentId) {
-      const parentNode = nodes.find((n) => n.id === parentId);
-      if (parentNode) {
-        const offset = 140;
-        const tmpX =
-          siblingCount !== 1
-            ? parentNode.position.x + (index - (siblingCount - 1) / 2) * offset
-            : parentNode.position.x;
-        position = { x: tmpX, y: parentNode.position.y + offset };
+  const normalizeNode = useCallback(
+    (id: string, raw: Record<string, unknown>): MyNodeData => ({
+      id,
+      board: normalizeBoard(gameType, raw.board),
+      currentPlayer: raw.currentPlayer === "W" ? "W" : "B",
+      parentId: typeof raw.parentId === "string" ? raw.parentId : undefined,
+      children: Array.isArray(raw.children)
+        ? raw.children.filter((child): child is string => typeof child === "string")
+        : [],
+      position:
+        raw.position && typeof raw.position === "object"
+          ? (raw.position as { x: number; y: number })
+          : undefined,
+      color:
+        typeof raw.color === "string" ? raw.color : NODE_COLORS.unanalyzed,
+      hidden: Boolean(raw.hidden),
+      hiddenChildren: Boolean(raw.hiddenChildren),
+      lastMove: normalizeLastMove(raw.lastMove),
+      move: Array.isArray(raw.move) ? (raw.move as number[]) : undefined,
+      moveNote: raw.moveNote === "mustNotChoose" ? "mustNotChoose" : null,
+      outcome:
+        raw.outcome === "win" || raw.outcome === "loss" || raw.outcome === "unknown"
+          ? raw.outcome
+          : null,
+      winner: typeof raw.winner === "string" ? raw.winner : null,
+      gameOver: Boolean(raw.gameOver),
+      analysis:
+        raw.analysis && typeof raw.analysis === "object"
+          ? parseAnalysis({
+              winning_moves: (raw.analysis as Record<string, unknown>).winningMoves,
+              unsafe_moves: (raw.analysis as Record<string, unknown>).unsafeMoves,
+              game_over: (raw.analysis as Record<string, unknown>).gameOver,
+              winner: (raw.analysis as Record<string, unknown>).winner,
+            })
+          : undefined,
+    }),
+    [gameType],
+  );
+
+  const loadGraphFromApi = useCallback(async () => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setLoading(true);
+    setError(null);
+    try {
+      const headers: Record<string, string> = {};
+      const token = process.env.REACT_APP_API_TOKEN;
+      if (token) headers["X-API-Token"] = token;
+      const response = await fetch(
+        `${API_URL}/load_graph?game_type=${encodeURIComponent(gameType)}`,
+        { signal: controller.signal, headers },
+      );
+      if (!response.ok) throw new Error(`load_graph failed (${response.status})`);
+      const data = await response.json();
+      if (data?.error) throw new Error(String(data.error));
+      if (!mountedRef.current) return;
+
+      const rawMap = (data?.nodesMap ?? {}) as Record<string, Record<string, unknown>>;
+      const map: NodesMap = {};
+      for (const [id, raw] of Object.entries(rawMap)) {
+        if (raw && typeof raw === "object") map[id] = normalizeNode(id, raw);
+      }
+      // Repair dangling children left by older versions.
+      for (const node of Object.values(map)) {
+        node.children = node.children.filter((child) => Boolean(map[child]));
+        if (node.parentId && !map[node.parentId]) node.parentId = undefined;
+      }
+
+      const positions = new Map<string, { x: number; y: number }>();
+      for (const saved of (data?.nodes ?? []) as Array<{
+        id: string;
+        position?: { x: number; y: number };
+      }>) {
+        if (saved?.id && saved.position) positions.set(saved.id, saved.position);
+      }
+      const flowNodes: FlowNode[] = Object.values(map).map((node) =>
+        toFlowNode(
+          node,
+          positions.get(node.id) ?? node.position ?? {
+            x: 100 + Math.random() * 300,
+            y: 100 + Math.random() * 300,
+          },
+        ),
+      );
+      const hiddenIds = new Set(
+        Object.values(map).filter((node) => node.hidden).map((node) => node.id),
+      );
+      const flowEdges: Edge[] = [];
+      const seenEdges = new Set<string>();
+      for (const raw of (data?.edges ?? []) as Array<{
+        id?: string;
+        source: string;
+        target: string;
+      }>) {
+        if (!raw || !map[raw.source] || !map[raw.target] || raw.source === raw.target) {
+          continue;
+        }
+        const id = raw.id || `e_${raw.source}_${raw.target}`;
+        if (seenEdges.has(id)) continue;
+        seenEdges.add(id);
+        flowEdges.push({
+          id,
+          source: raw.source,
+          target: raw.target,
+          hidden: hiddenIds.has(raw.source) || hiddenIds.has(raw.target),
+        });
+      }
+
+      const index: Record<string, string> = {};
+      for (const node of Object.values(map)) {
+        index[
+          boardKey(gameType, node.board, node.currentPlayer, node.lastMove ?? null)
+        ] = node.id;
+      }
+      const maxId = Object.keys(map).reduce(
+        (max, id) => Math.max(max, numericId(id)),
+        0,
+      );
+      nextIdRef.current = maxId + 1;
+
+      commit(nodesMapRef, setNodesMap, () => map);
+      commit(nodesRef, setNodes, () => flowNodes);
+      commit(edgesRef, setEdges, () => flowEdges);
+      commit(nodeIndexRef, setNodeIndex, () => index);
+      const preferred = data?.selectedNodeId as string | null;
+      setSelectedNodeId(
+        preferred && map[preferred] ? preferred : (Object.keys(map)[0] ?? null),
+      );
+    } catch (caught) {
+      if (caught instanceof Error && caught.name === "AbortError") return;
+      if (mountedRef.current) setError(`Could not load graph: ${messageOf(caught)}`);
+    } finally {
+      if (mountedRef.current && abortRef.current === controller) {
+        setLoading(false);
+        abortRef.current = null;
       }
     }
+  }, [gameType, normalizeNode, setSelectedNodeId, toFlowNode]);
 
-    // ==== ReactFlow ノード追加（boardも保持させる）====
-    const newNode: Node = {
-      id: newId,
-      data: {
+  useEffect(() => {
+    void loadGraphFromApi();
+    return () => abortRef.current?.abort();
+  }, [loadGraphFromApi]);
+
+  /** BFS with a visited set: cycles from transpositions can no longer hang. */
+  const getDescendants = useCallback((nodeId: string): string[] => {
+    const result: string[] = [];
+    const visited = new Set<string>([nodeId]);
+    const queue = [...(nodesMapRef.current[nodeId]?.children ?? [])];
+    while (queue.length) {
+      const childId = queue.shift() as string;
+      if (visited.has(childId)) continue;
+      visited.add(childId);
+      if (!nodesMapRef.current[childId]) continue;
+      result.push(childId);
+      queue.push(...(nodesMapRef.current[childId]?.children ?? []));
+    }
+    return result;
+  }, []);
+
+  const deleteIds = useCallback(
+    (ids: string[]) => {
+      const doomed = new Set(ids);
+      if (!doomed.size) return;
+      const fallbackParent = nodesMapRef.current[ids[0]]?.parentId;
+      commit(nodesMapRef, setNodesMap, (previous) => {
+        const next: NodesMap = {};
+        for (const [id, node] of Object.entries(previous)) {
+          if (doomed.has(id)) continue;
+          next[id] = {
+            ...node,
+            children: node.children.filter((child) => !doomed.has(child)),
+            parentId:
+              node.parentId && !doomed.has(node.parentId)
+                ? node.parentId
+                : undefined,
+          };
+        }
+        return next;
+      });
+      commit(nodesRef, setNodes, (previous) =>
+        previous.filter((node) => !doomed.has(node.id)),
+      );
+      commit(edgesRef, setEdges, (previous) =>
+        previous.filter(
+          (edge) => !doomed.has(edge.source) && !doomed.has(edge.target),
+        ),
+      );
+      commit(nodeIndexRef, setNodeIndex, (previous) => {
+        const next = { ...previous };
+        for (const [key, id] of Object.entries(next)) {
+          if (doomed.has(id)) delete next[key];
+        }
+        return next;
+      });
+      const selected = selectedRef.current;
+      if (selected && doomed.has(selected)) {
+        setSelectedNodeId(
+          fallbackParent && !doomed.has(fallbackParent)
+            ? fallbackParent
+            : null,
+        );
+      }
+    },
+    [setSelectedNodeId],
+  );
+
+  /**
+   * Apply the three minimax rules to the WHOLE current graph. Decided nodes
+   * are retained as reusable evidence; only still-unknown branches are pruned.
+   */
+  const applyExplorationRules = useCallback((): ExplorationStats => {
+    const result = resolveExploration(
+      nodesMapRef.current,
+      selectedRef.current ? [selectedRef.current] : [],
+    );
+    commit(nodesMapRef, setNodesMap, () => result.nodesMap);
+    commit(nodesRef, setNodes, (previous) =>
+      previous.map((node) => {
+        const data = result.nodesMap[node.id];
+        if (!data) return node;
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            color: data.color,
+            outcome: data.outcome ?? null,
+            moveNote: data.moveNote ?? null,
+          },
+        };
+      }),
+    );
+    const cutEdges = new Set(
+      result.cutEdgePairs.map(([source, target]) =>
+        JSON.stringify([source, target]),
+      ),
+    );
+    if (cutEdges.size) {
+      commit(edgesRef, setEdges, (previous) =>
+        previous.filter(
+          (edge) => !cutEdges.has(JSON.stringify([edge.source, edge.target])),
+        ),
+      );
+    }
+    deleteIds(result.removedIds);
+    setExplorationStats(result.stats);
+    return result.stats;
+  }, [deleteIds]);
+
+  const syncVisibility = useCallback((map: NodesMap) => {
+    const hidden = new Set(
+      Object.values(map).filter((node) => node.hidden).map((node) => node.id),
+    );
+    const nextNodes = commit(nodesRef, setNodes, (previous) =>
+      previous.map((node) => {
+        const shouldHide = hidden.has(node.id);
+        return node.hidden === shouldHide
+          ? node
+          : { ...node, hidden: shouldHide };
+      }),
+    );
+    const hiddenById = new Map(nextNodes.map((node) => [node.id, !!node.hidden]));
+    commit(edgesRef, setEdges, (previous) =>
+      previous.map((edge) => {
+        const shouldHide = Boolean(
+          hiddenById.get(edge.source) || hiddenById.get(edge.target),
+        );
+        return edge.hidden === shouldHide
+          ? edge
+          : { ...edge, hidden: shouldHide };
+      }),
+    );
+  }, []);
+
+  const applyVisibility = useCallback(
+    (updater: (previous: NodesMap) => NodesMap) => {
+      const next = commit(nodesMapRef, setNodesMap, updater);
+      syncVisibility(next);
+    },
+    [syncVisibility],
+  );
+
+  const updateNodeColor = useCallback(
+    (color: string, nodeId?: string) => {
+      const targetId = nodeId ?? selectedRef.current;
+      if (!targetId || !nodesMapRef.current[targetId]) return;
+      patchNode(targetId, { color });
+    },
+    [patchNode],
+  );
+
+  /** Explicit exploration result; colours follow the new evaluation palette. */
+  const setNodeOutcome = useCallback(
+    (nodeId: string, outcome: Exclude<NodeOutcome, null>) => {
+      const node = nodesMapRef.current[nodeId];
+      if (!node) return;
+      const decided = Boolean(node.analysis?.gameOver && node.analysis.winner);
+      const color = decided
+        ? POSITION_COLORS.winning
+        : node.color === POSITION_COLORS.noMoves
+          ? POSITION_COLORS.noMoves
+          : OUTCOME_COLORS[outcome as "win" | "loss"] ?? node.color;
+      patchNode(nodeId, { outcome, color });
+    },
+    [patchNode],
+  );
+
+  /**
+   * A move note is stored on the CHILD (which incoming move is flagged). It is
+   * a structured annotation, not a minimax result: yellow now means a proven
+   * `loss` and is only assigned by the exploration rules.
+   */
+  const setMoveNotes = useCallback((ids: string[], note: MoveNote) => {
+    const target = new Set(ids);
+    if (!target.size) return;
+    commit(nodesMapRef, setNodesMap, (previous) => {
+      const next = { ...previous };
+      for (const id of target) {
+        if (next[id]) next[id] = { ...next[id], moveNote: note };
+      }
+      return next;
+    });
+    commit(nodesRef, setNodes, (previous) =>
+      previous.map((node) =>
+        target.has(node.id)
+          ? { ...node, data: { ...node.data, moveNote: note } }
+          : node,
+      ),
+    );
+  }, []);
+
+  const addEdge = useCallback((source: string, target: string) => {
+    if (source === target) return;
+    const id = `e_${source}_${target}`;
+    commit(edgesRef, setEdges, (previous) =>
+      previous.some((edge) => edge.id === id)
+        ? previous
+        : [...previous, { id, source, target }],
+    );
+  }, []);
+
+  const addChildNode = useCallback(
+    (params: {
+      parentId: string;
+      board: GameBoard;
+      currentPlayer: Player;
+      lastMove: PyrgaLastMove | null;
+      move: number[];
+      index: number;
+      siblingCount: number;
+    }): string => {
+      const { parentId, board, currentPlayer, lastMove, move, index, siblingCount } =
+        params;
+      const newId = `node_${nextIdRef.current++}`;
+      const parentFlow = nodesRef.current.find((node) => node.id === parentId);
+      const offset = 140;
+      const position = parentFlow
+        ? {
+            x: parentFlow.position.x +
+              (index - (siblingCount - 1) / 2) * offset,
+            y: parentFlow.position.y + offset,
+          }
+        : { x: Math.random() * 400, y: Math.random() * 400 };
+
+      const node: MyNodeData = {
+        id: newId,
         board,
         currentPlayer,
-        color: color || "#ffffff",
-      },
-      position,
-    };
-
-    setNodes((prev) => [...prev, newNode]);
-
-    // ==== Edge追加 ====
-    if (parentId) {
-      const newEdge: Edge = {
-        id: `e_${parentId}_${newId}`,
-        source: parentId,
-        target: newId,
+        parentId,
+        children: [],
+        position,
+        color: POSITION_COLORS.unanalyzed,
+        hidden: false,
+        hiddenChildren: false,
+        lastMove,
+        move,
+        moveNote: null,
+        outcome: "unknown",
       };
-      setEdges((prev) => [...prev, newEdge]);
-    }
-  };
 
-  // ===== ノード削除 =====
-  const deleteNode = (nodeId: string) => {
-    const nodeColor = nodesMap[nodeId].color;
-    if (
-      nodeColor === "#285294" ||
-      nodeColor === "#ffff99" ||
-      nodeColor === "#ff99ff"
-    ) {
-      return;
-    }
-    // 子も再帰削除
-    getChildren(nodeId).forEach((childId) => deleteNode(childId));
-
-    setNodesMap((prev) => {
-      const updated = { ...prev };
-      // 親の children 配列から除外
-      Object.values(updated).forEach((n) => {
-        if (n.children != null) {
-          n.children = n.children.filter((cId) => cId !== nodeId);
+      commit(nodesMapRef, setNodesMap, (previous) => {
+        const next = { ...previous, [newId]: node };
+        if (next[parentId]) {
+          next[parentId] = {
+            ...next[parentId],
+            children: [...next[parentId].children, newId],
+          };
         }
+        return next;
       });
-      delete updated[nodeId];
-      return updated;
-    });
+      commit(nodeIndexRef, setNodeIndex, (previous) => ({
+        ...previous,
+        [boardKey(gameType, board, currentPlayer, lastMove)]: newId,
+      }));
+      commit(nodesRef, setNodes, (previous) => [
+        ...previous,
+        toFlowNode(node, position),
+      ]);
+      addEdge(parentId, newId);
+      return newId;
+    },
+    [addEdge, gameType, toFlowNode],
+  );
 
-    setNodes((nds) => nds.filter((n) => n.id !== nodeId));
-    setEdges((eds) =>
-      eds.filter((e) => e.source !== nodeId && e.target !== nodeId),
-    );
-
-    if (selectedNodeId === nodeId) setSelectedNodeId(null);
-
-    // nodeIndex からも削除
-    setNodeIndex((prev) => {
-      const updated = { ...prev };
-      Object.keys(updated).forEach((key) => {
-        if (updated[key] === nodeId) {
-          delete updated[key];
+  const addLegalMovesFromApi = useCallback(
+    async (nodeId: string) => {
+      const node = nodesMapRef.current[nodeId];
+      if (!node || SKIP_REEXPANSION_COLORS.includes(node.color)) return;
+      setBusy(true);
+      setError(null);
+      try {
+        const payload: Record<string, unknown> = {
+          board: node.board,
+          player: node.currentPlayer,
+        };
+        if (gameType === "pyrga") {
+          payload.last_move = lastMoveToPayload(node.lastMove);
         }
-      });
-      return updated;
-    });
-  };
-  const handleNodesDelete = (deletedNodes: Node[]) => {
-    deletedNodes.forEach((node) => {
-      deleteNode(node.id);
-    });
-  };
+        const raw = await request(`/legal_moves/${gameType}`, {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        if (!mountedRef.current || !nodesMapRef.current[nodeId]) return;
 
-  // ===== 子ノードの削除 =====
-  const deleteChildren = (nodeId: string) => {
-    const children = getChildren(nodeId);
+        const moves: number[][] = Array.isArray(raw?.moves) ? raw.moves : [];
+        const analysis = parseAnalysis(raw);
+        commit(nodesMapRef, setNodesMap, (previous) => ({
+          ...previous,
+          [nodeId]: {
+            ...previous[nodeId],
+            analysis,
+            gameOver: analysis.gameOver,
+            winner: analysis.winner,
+          },
+        }));
 
-    if (!children || children.length === 0) return;
+        if (moves.length === 0) {
+          // A terminal position is a loss for the side to move. The reached
+          // child keeps the decided-board / noMoves colour; rule 3 then makes
+          // the parent a certain win. Never paint the parent from here.
+          const decided = analysis.gameOver && !!analysis.winner;
+          updateNodeColor(
+            decided ? POSITION_COLORS.winning : POSITION_COLORS.noMoves,
+            nodeId,
+          );
+          setNodeOutcome(nodeId, "loss");
+          applyExplorationRules();
+          return;
+        }
 
-    const blueChildren: string[] = [];
-    const yellowChildren: string[] = [];
-    const deleteTargets: string[] = [];
+        // Rule 1: choose every immediate winning move; other, still-unknown
+        // moves need no exploration. Already decided siblings are pruned later.
+        const winningKeys = new Set(analysis.winningMoves.map(moveKey));
+        const matchingWinningMoves = moves.filter((move) =>
+          winningKeys.has(moveKey(move)),
+        );
+        const candidateMoves =
+          winningKeys.size > 0 && matchingWinningMoves.length > 0
+            ? matchingWinningMoves
+            : moves;
 
-    // 色判定して仕分け
-    children.forEach((childId) => {
-      const childNode = nodesMap[childId];
-      if (!childNode) return;
-
-      if (childNode.color === "#285294" || childNode.color === "#ff99ff") {
-        blueChildren.push(childId);
-      } else if (childNode.color === "#ffff99") {
-        yellowChildren.push(childId);
-      } else {
-        deleteTargets.push(childId);
+        const childPlayer = opponent(node.currentPlayer);
+        for (let index = 0; index < candidateMoves.length; index += 1) {
+          const move = candidateMoves[index];
+          let applied: AppliedMove;
+          try {
+            applied = applyMove(gameType, node.board, move, node.currentPlayer);
+          } catch (caught) {
+            console.warn("Skipping invalid move", move, messageOf(caught));
+            continue;
+          }
+          const key = boardKey(
+            gameType,
+            applied.board,
+            childPlayer,
+            applied.lastMove,
+          );
+          const existingId = nodeIndexRef.current[key];
+          if (existingId && nodesMapRef.current[existingId]) {
+            if (existingId === nodeId) continue;
+            addEdge(nodeId, existingId);
+            // Read the colour BEFORE any automatic change: a loop is not a
+            // decisive result and must not by itself mark the parent.
+            const existingColor = nodesMapRef.current[existingId].color;
+            if (isReusablePositionColor(existingColor)) {
+              // Structured note on the incoming move; the parent's evaluation
+              // is derived from the child's `outcome`, not from a colour.
+              setMoveNotes([existingId], "mustNotChoose");
+            } else if (existingColor === POSITION_COLORS.unanalyzed) {
+              // Transposition: mark the re-reached position as a loop.
+              updateNodeColor(POSITION_COLORS.loop, existingId);
+            }
+            continue;
+          }
+          addChildNode({
+            parentId: nodeId,
+            board: applied.board,
+            currentPlayer: childPlayer,
+            lastMove: applied.lastMove,
+            move,
+            index,
+            siblingCount: candidateMoves.length,
+          });
+        }
+        // Rules 2/3 propagate fresh child outcomes to this parent and its
+        // ancestors; unknown siblings of decided parents are pruned.
+        applyExplorationRules();
+      } catch (caught) {
+        setError(`Could not fetch legal moves: ${messageOf(caught)}`);
+      } finally {
+        if (mountedRef.current) setBusy(false);
       }
-    });
+    },
+    [
+      addChildNode,
+      addEdge,
+      applyExplorationRules,
+      gameType,
+      request,
+      setMoveNotes,
+      setNodeOutcome,
+      updateNodeColor,
+    ],
+  );
 
-    // 青以外の子を削除
-    deleteTargets.forEach((childId) => {
-      deleteNode(childId);
-    });
+  const addLegalMovesFromApi2 = useCallback(
+    async (nodeId: string) => {
+      await addLegalMovesFromApi(nodeId);
+      let expanded = 0;
+      const level1 = [...(nodesMapRef.current[nodeId]?.children ?? [])];
+      for (const childId of level1) {
+        if (expanded >= MAX_AUTO_EXPAND_NODES) break;
+        await addLegalMovesFromApi(childId);
+        expanded += 1;
+        const level2 = [...(nodesMapRef.current[childId]?.children ?? [])];
+        for (const grandChildId of level2) {
+          if (expanded >= MAX_AUTO_EXPAND_NODES) break;
+          await addLegalMovesFromApi(grandChildId);
+          expanded += 1;
+        }
+      }
+    },
+    [addLegalMovesFromApi],
+  );
 
-    yellowChildren.forEach((childId) => {
-      deleteChildren(childId);
-    });
+  const markUnsafeMoves = useCallback(
+    (nodeId: string) => {
+      const node = nodesMapRef.current[nodeId];
+      if (!node?.analysis || node.analysis.unsafeMoves.length === 0) return;
+      const keys = new Set(node.analysis.unsafeMoves.map(moveKey));
+      const targets = node.children.filter((id) => {
+        const child = nodesMapRef.current[id];
+        return child?.move && keys.has(moveKey(child.move));
+      });
+      // Risky moves are manual annotations, NOT a proven minimax loss. Keep
+      // the structured note on the incoming move; yellow now means `losing`.
+      setMoveNotes(targets, "mustNotChoose");
+    },
+    [setMoveNotes],
+  );
 
-    blueChildren.forEach((childId) => {
-      deleteChildren(childId);
-    });
+  const deleteNode = useCallback(
+    (nodeId: string) => {
+      if (!nodesMapRef.current[nodeId]) return;
+      deleteIds([nodeId, ...getDescendants(nodeId)]);
+    },
+    [deleteIds, getDescendants],
+  );
 
-    // 親ノードの children を青だけ残す
-    setNodesMap((prev) => {
-      const updated = { ...prev };
-      if (updated[nodeId]) {
-        updated[nodeId] = {
-          ...updated[nodeId],
-          children: [...blueChildren, ...yellowChildren],
+  const deleteChildren = useCallback(
+    (nodeId: string) => {
+      if (!nodesMapRef.current[nodeId]) return;
+      deleteIds(getDescendants(nodeId));
+    },
+    [deleteIds, getDescendants],
+  );
+
+  const handleNodesDelete = useCallback(
+    (deletedNodes: Node[]) => {
+      const ids = new Set<string>();
+      for (const node of deletedNodes) {
+        ids.add(node.id);
+        for (const id of getDescendants(node.id)) ids.add(id);
+      }
+      deleteIds([...ids]);
+    },
+    [deleteIds, getDescendants],
+  );
+
+  const hideNode = useCallback(
+    (nodeId: string) => {
+      if (!nodesMapRef.current[nodeId]) return;
+      applyVisibility((previous) => ({
+        ...previous,
+        [nodeId]: { ...previous[nodeId], hidden: true },
+      }));
+    },
+    [applyVisibility],
+  );
+
+  const toggleChildren = useCallback(
+    (nodeId: string) => {
+      const target = nodesMapRef.current[nodeId];
+      if (!target) return;
+      const hide = !target.hiddenChildren;
+      const descendants = getDescendants(nodeId);
+      applyVisibility((previous) => {
+        const next: NodesMap = {
+          ...previous,
+          [nodeId]: { ...previous[nodeId], hiddenChildren: hide },
+        };
+        for (const id of descendants) {
+          if (next[id]) next[id] = { ...next[id], hidden: hide };
+        }
+        return next;
+      });
+    },
+    [applyVisibility, getDescendants],
+  );
+
+  /**
+   * Hides every resolved position: decided / noMoves / loop AND evaluated
+   * certain-win / losing results. Manual memos and structured move notes stay
+   * visible. Hidden nodes are not deleted and remain reusable evidence.
+   */
+  const hideResolved = useCallback(() => {
+    applyVisibility((previous) => {
+      const next: NodesMap = {};
+      for (const [id, node] of Object.entries(previous)) {
+        next[id] = HIDE_RESOLVED_COLORS.includes(node.color)
+          ? { ...node, hidden: true }
+          : node;
+      }
+      return next;
+    });
+  }, [applyVisibility]);
+
+  /** Filters on manual WORK MEMOS (the green "play line" colours). */
+  const showPlayLine = useCallback(() => {
+    applyVisibility((previous) => {
+      const next: NodesMap = {};
+      for (const [id, node] of Object.entries(previous)) {
+        next[id] = {
+          ...node,
+          hidden: !PLAY_MEMO_COLORS.includes(node.color),
         };
       }
-      return updated;
+      return next;
     });
-  };
+  }, [applyVisibility]);
 
-  // ===== ノード色変更 =====
-  const updateNodeColor = (color: string, nodeId?: string) => {
-    const targetId = nodeId || selectedNodeId;
-    if (!targetId) return;
-
-    setNodesMap((prev) => ({
-      ...prev,
-      [targetId]: { ...prev[targetId], color },
-    }));
-  };
-
-  const hideNode = (nodeId: string) => {
-    setNodesMap((prev) => {
-      const updated = { ...prev };
-      updated[nodeId].hidden = true;
-      return updated;
-    });
-    setNodes((prev) =>
-      prev.map((n) => ({ ...n, hidden: nodesMap[n.id]?.hidden || false })),
+  const onNodesChange = useCallback((changes: NodeChange[]) => {
+    // Positions live only in ReactFlow state now; mirroring them into nodesMap
+    // on every drag used to re-render all ~8,000 nodes per mouse move.
+    commit(nodesRef, setNodes, (previous) =>
+      applyNodeChanges(changes, previous) as FlowNode[],
     );
-    setEdges((prev) =>
-      prev.map((e) => ({
-        ...e,
-        hidden:
-          (nodesMap[e.source]?.hidden ?? false) ||
-          (nodesMap[e.target]?.hidden ?? false),
-      })),
+  }, []);
+
+  const onEdgesChange = useCallback((changes: EdgeChange[]) => {
+    commit(edgesRef, setEdges, (previous) =>
+      applyEdgeChanges(changes, previous),
     );
-  };
+  }, []);
 
-  // ===== 子ノード表示切替 =====
-  const toggleChildren = (nodeId: string) => {
-    const targetNode = nodesMap[nodeId];
-    const hide = !targetNode.hiddenChildren;
-    const descendants = getDescendants(nodeId);
-
-    setNodesMap((prev) => {
-      const updated = { ...prev };
-      updated[nodeId].hiddenChildren = hide;
-      descendants.forEach((id) => {
-        if (!updated[id]) return;
-        updated[id].hidden = hide;
-      });
-      return updated;
-    });
-
-    setNodes((prev) =>
-      prev.map((n) => ({ ...n, hidden: nodesMap[n.id]?.hidden || false })),
-    );
-    setEdges((prev) =>
-      prev.map((e) => ({
-        ...e,
-        hidden:
-          (nodesMap[e.source]?.hidden ?? false) ||
-          (nodesMap[e.target]?.hidden ?? false),
-      })),
-    );
-  };
-
-  // ===== APIから法的手を追加 =====
-  const addLegalMovesFromApi = async (nodeId: string, deleteFlg?: boolean) => {
-    if (deleteFlg === null) {
-      deleteFlg = true;
-    }
-    const node = nodesMap[nodeId];
-    if (!node) return;
-
-    if (node.color === "#ff99ff" || node.color === "#285294" || node.color === "#ffff99") {
-      return;
-    }
-
-    const body: any = {
-      board: node.board,
-      player: node.currentPlayer,
-    };
-    if (gameType === "pyrga") body.last_move = lastMove;
-
+  const saveGraph = useCallback(async () => {
+    setSaveStatus("saving");
     try {
-      console.log(JSON.stringify(body));
-      const res = await fetch(`${API_URL}/legal_moves/${gameType}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-
-      if (!res.ok) throw new Error("Failed to fetch legal moves");
-      const data = await res.json();
-      const moves: number[][] = data.moves;
-
-      if (moves.length === 0) {
-        updateNodeColor("#ff99ff", nodeId);
-        // 親ノードの色も変更
-        const parentId = nodesMap[nodeId]?.parentId;
-        const parent = parentId ? nodesMap[parentId] : null;
-
-        if (parentId && parent) {
-          updateNodeColor("#ffff99", parent.id);
-          if (deleteFlg === true) {
-            // 兄弟削除
-            const siblings = [...parent.children];
-            siblings.forEach((siblingId) => {
-              if (siblingId !== nodeId) {
-                deleteNode(siblingId);
-              }
-            });
-            toggleChildren(parentId);
-          }
-        }
-        return;
+      const payload = {
+        // `data` contains component references; only positions are persisted.
+        nodes: nodesRef.current.map((node) => ({
+          id: node.id,
+          position: node.position,
+        })),
+        edges: edgesRef.current.map((edge) => ({
+          id: edge.id,
+          source: edge.source,
+          target: edge.target,
+          hidden: edge.hidden ?? false,
+        })),
+        nodesMap: nodesMapRef.current,
+        selectedNodeId: selectedRef.current,
+      };
+      const result = await request(
+        `/save_graph?game_type=${encodeURIComponent(gameType)}`,
+        { method: "POST", body: JSON.stringify(payload) },
+      );
+      if (result?.status !== "ok" && result?.error) {
+        throw new Error(String(result.error));
       }
-
-      let breakpoint = false;
-
-      moves.forEach(([r1, c1, r2, c2], idx) => {
-        if (breakpoint) return;
-        const newBoard = node.board.map((row, i) =>
-          row.map((cell, j) =>
-            i === r1 && j === c1
-              ? "."
-              : i === r2 && j === c2
-                ? node.board[r1][c1]
-                : cell,
-          ),
-        );
-        let color: string = "#ffffff";
-
-        const key = keyFor(newBoard, node.currentPlayer === "B" ? "W" : "B");
-        const existingId = nodeIndex[key];
-
-        if (existingId) {
-          const existingNode = nodesMap[existingId];
-          console.log(
-            "Existing node found for legal move:",
-            existingId,
-            existingNode,
-          );
-          existingNode.hidden = false; // ノード表示
-          // エッジを追加
-          const edgeId = `e_${nodeId}_${existingId}`;
-          setEdges((eds) => {
-            // 既存エッジチェック
-            if (eds.find((e) => e.id === edgeId)) return eds;
-            return [...eds, { id: edgeId, source: nodeId, target: existingId }];
-          });
-          const existingColor = existingNode?.color ?? "#ffffff";
-          if (existingColor === "#ff99ff" || existingColor === "#285294") {
-            console.log("Existing node color:", existingColor);
-            updateNodeColor("#ffff99", nodeId);
-            // 兄弟削除
-            const siblings = [...node.children];
-            console.log("Siblings to delete:", siblings);
-            siblings.forEach((siblingId) => {
-              if (siblingId !== existingId) {
-                console.log("Deleting sibling node:", siblingId);
-                deleteNode(siblingId);
-              }
-            });
-            toggleChildren(nodeId);
-            breakpoint = true;
-          }
-        } else {
-          addNode(
-            nodeId,
-            newBoard,
-            node.currentPlayer === "B" ? "W" : "B",
-            idx,
-            moves.length,
-            color,
-          );
-        }
-      });
-    } catch (e) {
-      console.error(e);
-      // alert("Failed to fetch legal moves");
+      setSaveStatus("saved");
+      setError(null);
+    } catch (caught) {
+      setSaveStatus("error");
+      setError(`Could not save graph: ${messageOf(caught)}`);
     }
-  };
-
-  const addLegalMovesFromApi2 = async (nodeId: string) => {
-    const node = nodesMap[nodeId];
-    if (!node) return;
-
-    // 0段目
-    await addLegalMovesFromApi(nodeId);
-
-    const level1 = [...(nodesMap[nodeId]?.children || [])];
-
-    for (const childId of level1) {
-      console.log(childId);
-      await addLegalMovesFromApi(childId, false);
-
-      const level2 = [...(nodesMap[childId]?.children || [])];
-
-      for (const grandChildId of level2) {
-        await addLegalMovesFromApi(grandChildId);
-      }
-    }
-    if (node.color !== "#ffffff") {
-      await deleteChildren(nodeId);
-    }
-  };
-
-  const onNodesChange = (changes: NodeChange[]) => {
-    setNodes((nds) => {
-      const updatedNodes = applyNodeChanges(changes, nds);
-      // nodesMap の position も更新
-      setNodesMap((prev) => {
-        const newMap = { ...prev };
-        updatedNodes.forEach((n) => {
-          if (newMap[n.id]) newMap[n.id].position = n.position;
-        });
-        return newMap;
-      });
-      return updatedNodes;
-    });
-  };
-
-  const hideyellow = () => {
-    setNodesMap((prev) => {
-      const updated = { ...prev };
-      Object.values(updated).forEach((n) => {
-        if (
-          n.color === "#ffff99" ||
-          n.color === "#285294" ||
-          n.color === "#ff99ff"
-        ) {
-          n.hidden = true;
-        }
-      });
-      return updated;
-    });
-
-    setNodes((prev) =>
-      prev.map((n) => ({
-        ...n,
-        hidden: nodesMap[n.id]?.hidden || false,
-      })),
-    );
-    setEdges((prev) =>
-      prev.map((e) => ({
-        ...e,
-        hidden:
-          (nodesMap[e.source]?.hidden ?? false) ||
-          (nodesMap[e.target]?.hidden ?? false),
-      })),
-    );
-  };
-
-  const showGreen = () => {
-    setNodesMap((prev) => {
-      const updated = { ...prev };
-      Object.values(updated).forEach((n) => {
-        if (n.color !== "#99ff99" && n.color !== "#11c101ff") {
-          n.hidden = true;
-        } else {
-          n.hidden = false;
-        }
-      });
-      return updated;
-    });
-    setNodes((prev) =>
-      prev.map((n) => ({
-        ...n,
-        hidden: nodesMap[n.id]?.hidden || false,
-      })),
-    );
-    setEdges((prev) =>
-      prev.map((e) => ({
-        ...e,
-        hidden:
-          (nodesMap[e.source]?.hidden ?? false) ||
-          (nodesMap[e.target]?.hidden ?? false),
-      })),
-    );
-  };
-
-  // ===== 保存 =====
-  const saveGraph = async () => {
-    const payload = {
-      nodes: nodes.map((n) => ({ id: n.id, position: n.position })),
-      edges,
-      nodesMap,
-      selectedNodeId,
-    };
-    try {
-      await fetch(`${API_URL}/save_graph?game_type=${gameType}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      console.log("Graph saved!");
-    } catch (e) {
-      console.error(e);
-      alert("Failed to save graph");
-    }
-  };
+  }, [gameType, request]);
 
   return {
     nodes,
     edges,
     nodesMap,
     selectedNodeId,
-    setNodes,
-    setEdges,
-    setNodesMap,
     setSelectedNodeId,
-    lastMove,
-    setLastMove,
-    getChildren,
-    getDescendants,
-    addNode,
-    addEdge,
+    loading,
+    busy,
+    error,
+    saveStatus,
+    loadGraphFromApi,
     deleteNode,
+    deleteChildren,
     hideNode,
     handleNodesDelete,
     updateNodeColor,
     toggleChildren,
     addLegalMovesFromApi,
     addLegalMovesFromApi2,
+    applyExplorationRules,
+    explorationStats,
+    markUnsafeMoves,
     onNodesChange,
-    hideyellow,
-    deleteChildren,
-    showGreen,
+    onEdgesChange,
+    hideResolved,
+    showPlayLine,
     saveGraph,
   };
 };

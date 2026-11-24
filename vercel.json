@@ -1,5 +1,6 @@
 {
-  "buildCommand": "cd frontend && npm install && npm run build",
+  "installCommand": "cd frontend && npm ci --include=dev",
+  "buildCommand": "cd frontend && npm run typecheck && npm run lint && npm run build",
   "outputDirectory": "frontend/build",
   "framework": null
 }

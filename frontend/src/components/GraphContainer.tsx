@@ -1,76 +1,62 @@
-import React, { useEffect } from "react";
-import { useGraphLogic } from "../hooks/useGraphLogic";
+import React from "react";
 import ReactFlow, {
-  ReactFlowProvider,
-  MiniMap,
-  Controls,
   Background,
+  Controls,
+  MiniMap,
+  ReactFlowProvider,
 } from "react-flow-renderer";
+import { useGraphLogic } from "../hooks/useGraphLogic";
+import { GameType } from "../types/MyNodeData";
+import { BoardRenderer } from "../types/flow";
+import { nodeTypes } from "./BoardNode";
 import { NodePanel } from "./NodePanel";
 
 interface GraphContainerProps {
-  gameType: "neutreeko" | "pyrga";
-  BoardComponent: React.ComponentType<{ board: any; color?: string }>;
+  gameType: GameType;
+  BoardComponent: BoardRenderer;
 }
 
 export const GraphContainer: React.FC<GraphContainerProps> = ({
   gameType,
   BoardComponent,
 }) => {
-  const {
-    nodes,
-    edges,
-    nodesMap,
-    selectedNodeId,
-    setNodes,
-    setEdges,
-    setSelectedNodeId,
-    deleteNode,
-    hideNode,
-    handleNodesDelete,
-    updateNodeColor,
-    toggleChildren,
-    addLegalMovesFromApi,
-    addLegalMovesFromApi2,
-    onNodesChange,
-    hideyellow,
-    deleteChildren,
-    showGreen,
-    saveGraph,
-  } = useGraphLogic(gameType);
-
-  useEffect(() => {
-    setNodes((prevNodes) =>
-      prevNodes.map((n) => {
-        const mapNode = nodesMap[n.id];
-        if (!mapNode) return n;
-        return {
-          ...n,
-          data: {
-            ...n.data,
-            label: (
-              <BoardComponent board={mapNode.board} color={mapNode.color} />
-            ),
-          },
-          hidden: mapNode.hidden ?? false,
-        };
-      })
-    );
-  }, [nodesMap, BoardComponent, setNodes, gameType]);
+  const logic = useGraphLogic(gameType, BoardComponent);
+  const selectedNode = logic.selectedNodeId
+    ? logic.nodesMap[logic.selectedNodeId]
+    : undefined;
 
   return (
     <ReactFlowProvider>
       <div style={{ display: "flex", height: "100vh" }}>
-        <div style={{ flex: 3 }}>
+        <div style={{ flex: 3, position: "relative", minWidth: 0 }}>
+          {logic.loading && (
+            <div style={overlayStyle}>Loading graph…</div>
+          )}
+          {logic.error && (
+            <div
+              role="alert"
+              style={{
+                ...overlayStyle,
+                backgroundColor: "rgba(255, 235, 235, 0.96)",
+                color: "#8a1c1c",
+                flexDirection: "column",
+                gap: 8,
+              }}
+            >
+              <span>{logic.error}</span>
+              <button onClick={() => void logic.loadGraphFromApi()}>
+                Retry
+              </button>
+            </div>
+          )}
           <ReactFlow
-            nodes={nodes.filter((n) => !n.hidden)}
-            edges={edges.filter((e) => !e.hidden)}
-            onNodesChange={onNodesChange}
-            onEdgesChange={(changes) => setEdges((eds) => [...eds])}
-            onNodeClick={(e, node) => {
-              setSelectedNodeId(node.id);
-            }}
-            onNodesDelete={handleNodesDelete}
+            nodes={logic.nodes}
+            edges={logic.edges}
+            nodeTypes={nodeTypes}
+            onNodesChange={logic.onNodesChange}
+            onEdgesChange={logic.onEdgesChange}
+            onNodeClick={(_, node) => logic.setSelectedNodeId(node.id)}
+            onNodesDelete={logic.handleNodesDelete}
             fitView
             style={{ width: "100%", height: "100%" }}
           >
@@ -79,29 +65,55 @@ export const GraphContainer: React.FC<GraphContainerProps> = ({
             <Background />
           </ReactFlow>
         </div>
-        <div style={{ flex: 1, padding: "10px" }}>
+        <aside
+          style={{
+            flex: 1,
+            padding: 10,
+            overflowY: "auto",
+            borderLeft: "1px solid #ddd",
+          }}
+        >
           <h3>Node Panel</h3>
-          {selectedNodeId && nodesMap[selectedNodeId] && (
+          {logic.busy && <p role="status">Working…</p>}
+          {selectedNode ? (
             <NodePanel
-              node={nodesMap[selectedNodeId]}
+              node={selectedNode}
               boardComponent={BoardComponent}
-              addLegalMoves={() => addLegalMovesFromApi(selectedNodeId)}
-              addLegalMoves2={() => addLegalMovesFromApi2(selectedNodeId)}
-              deleteNode={() => deleteNode(selectedNodeId)}
-              hideNode={() => hideNode(selectedNodeId)}
-              updateNodeColor={updateNodeColor}
-              toggleChildren={() => toggleChildren(selectedNodeId)}
-              hideyellow={hideyellow}
-              deleteChildren={() => deleteChildren(selectedNodeId)}
-              showGreen={showGreen}
-              saveGraph={saveGraph}
+              gameType={gameType}
+              busy={logic.busy}
+              saveStatus={logic.saveStatus}
+              addLegalMoves={() => void logic.addLegalMovesFromApi(selectedNode.id)}
+              addLegalMoves2={() => void logic.addLegalMovesFromApi2(selectedNode.id)}
+              applyExplorationRules={logic.applyExplorationRules}
+              explorationStats={logic.explorationStats}
+              deleteNode={() => logic.deleteNode(selectedNode.id)}
+              hideNode={() => logic.hideNode(selectedNode.id)}
+              updateNodeColor={logic.updateNodeColor}
+              toggleChildren={() => logic.toggleChildren(selectedNode.id)}
+              hideResolved={logic.hideResolved}
+              deleteChildren={() => logic.deleteChildren(selectedNode.id)}
+              showPlayLine={logic.showPlayLine}
+              markUnsafeMoves={() => logic.markUnsafeMoves(selectedNode.id)}
+              saveGraph={() => void logic.saveGraph()}
             />
+          ) : (
+            <p>Select a node to inspect it.</p>
           )}
-        </div>
-        <button onClick={saveGraph} style={{ marginTop: "10px" }}>
-          Save Graph
-        </button>
+        </aside>
       </div>
     </ReactFlowProvider>
   );
+};
+
+const overlayStyle: React.CSSProperties = {
+  position: "absolute",
+  top: 10,
+  left: 10,
+  zIndex: 10,
+  display: "flex",
+  alignItems: "center",
+  padding: "8px 12px",
+  backgroundColor: "rgba(255, 255, 255, 0.95)",
+  border: "1px solid #ccc",
+  borderRadius: 4,
 };

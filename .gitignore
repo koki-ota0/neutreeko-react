@@ -1,2 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node / Create React App
+node_modules/
+frontend/build/
+frontend/coverage/
+.eslintcache
+npm-debug.log*
+
+# Local env overrides. The tracked .env.development / .env.production
+# files are templates, not secrets; real values go in *.local or the shell.
+.env.local
+.env.*.local
+
+# Scratch notebooks. backend/edit.ipynb is intentionally still tracked.
 *.ipynb
-*.json
+
+# Generated / temporary graph data
+backend/tmp_data/
+backend/data/*.tmp
+backend/data/.*.tmp
+backend/data/*.bak
+
+# OS files
+.DS_Store

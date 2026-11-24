@@ -1,105 +1,111 @@
-// frontend/src/components/board/PyrgaBoard.tsx
-import React, { JSX } from "react";
+import React from "react";
+import { PYRGA_SIZE } from "../../constants/game";
+import { BoardRenderProps } from "../../types/flow";
 import { PyrgaCell, PyrgaPiece } from "../../types/pyrga";
 
-// Props
-export interface PyrgaBoardProps {
-  board: PyrgaCell[][]; // 4x4
-  color?: string; // マス背景色
-  lastMove?: { row: number; col: number; piece: PyrgaPiece }; // 最後の手
-  cellSize?: number; // px
+const SURFACE = "#f8fafc";
+
+export interface PyrgaBoardProps extends BoardRenderProps {
+  lastMove?: { row: number; col: number; piece: PyrgaPiece };
+  cellSize?: number;
 }
+
+const asCell = (value: unknown): PyrgaCell =>
+  Array.isArray(value)
+    ? value.filter(
+        (piece): piece is PyrgaPiece =>
+          !!piece &&
+          typeof piece === "object" &&
+          ["S", "T", "C"].includes((piece as PyrgaPiece).type),
+      )
+    : [];
 
 export const PyrgaBoard: React.FC<PyrgaBoardProps> = ({
   board,
-  color = "#eee",
   lastMove,
   cellSize = 20,
 }) => {
-  const BOARD_SIZE = board.length;
+  const rows = (Array.isArray(board) ? board : []) as unknown[][];
 
   return (
     <div
+      role="grid"
+      aria-label="Pyrga board"
       style={{
         display: "grid",
-        gridTemplateColumns: `repeat(${BOARD_SIZE}, ${cellSize}px)`,
-        gridTemplateRows: `repeat(${BOARD_SIZE}, ${cellSize}px)`,
+        gridTemplateColumns: `repeat(${PYRGA_SIZE}, ${cellSize}px)`,
+        gridTemplateRows: `repeat(${PYRGA_SIZE}, ${cellSize}px)`,
         gap: 2,
-        backgroundColor: "#fff",
-        border: "2px solid #333",
+        backgroundColor: "#ffffff",
+        border: "2px solid #334155",
+        borderRadius: 3,
         padding: 4,
       }}
     >
-      {board.flatMap((row, rIdx) => {
-        const rowElements: JSX.Element[] = [];
-        for (let cIdx = 0; cIdx < row.length; cIdx++) {
-          const cell = row[cIdx];
-          const cellElements: JSX.Element[] = [];
-
-          // cellが配列でない場合は空に変換
-          const pieces: PyrgaPiece[] = Array.isArray(cell) ? cell : [];
-
-          for (let i = 0; i < pieces.length; i++) {
-            const piece = pieces[i];
-            const isLastMove =
-              lastMove &&
-              lastMove.row === rIdx &&
-              lastMove.col === cIdx &&
-              lastMove.piece === piece;
-
-            const bgColor =
-              piece.type === "S"
-                ? piece.player === "B"
-                  ? "black"
-                  : "white"
-                : piece.type === "T"
-                ? piece.player === "B"
-                  ? "darkred"
-                  : "pink"
-                : piece.player === "B"
-                ? "blue"
-                : "lightblue";
-
-            cellElements.push(
-              <div
-                key={i}
-                style={{
-                  width: cellSize / 2,
-                  height: cellSize / 2,
-                  backgroundColor: bgColor,
-                  borderRadius: piece.type === "C" ? "50%" : "0%",
-                  border: isLastMove ? "2px solid yellow" : "1px solid #555",
-                  display: "flex",
-                  justifyContent: "center",
-                  alignItems: "center",
-                  fontSize: 12,
-                  color: piece.player === "B" ? "white" : "black",
-                }}
-              >
-                {piece.type === "S" ? "■" : piece.type === "T" ? "▲" : "●"}
-              </div>
-            );
-          }
-
-          rowElements.push(
+      {Array.from({ length: PYRGA_SIZE }, (_, rowIndex) =>
+        Array.from({ length: PYRGA_SIZE }, (_, colIndex) => {
+          const pieces = asCell(rows?.[rowIndex]?.[colIndex]);
+          return (
             <div
-              key={`${rIdx}-${cIdx}`}
+              role="gridcell"
+              key={`${rowIndex}-${colIndex}`}
               style={{
                 width: cellSize,
                 height: cellSize,
-                backgroundColor: color,
+                backgroundColor: SURFACE,
+                border: "1px solid #cbd5e1",
+                borderRadius: 2,
                 display: "flex",
                 flexDirection: "column",
                 justifyContent: "center",
                 alignItems: "center",
+                overflow: "hidden",
               }}
             >
-              {cellElements}
+              {pieces.map((piece, index) => {
+                const isLastMove =
+                  !!lastMove &&
+                  lastMove.row === rowIndex &&
+                  lastMove.col === colIndex &&
+                  lastMove.piece === piece;
+                const backgroundColor =
+                  piece.type === "S"
+                    ? piece.player === "B"
+                      ? "#111827"
+                      : "#ffffff"
+                    : piece.type === "T"
+                      ? piece.player === "B"
+                        ? "#7f1d1d"
+                        : "#fbcfe8"
+                      : piece.player === "B"
+                        ? "#1d4ed8"
+                        : "#bfdbfe";
+                return (
+                  <div
+                    key={`${piece.type}-${index}`}
+                    style={{
+                      width: cellSize / 2,
+                      height: cellSize / 2,
+                      backgroundColor,
+                      borderRadius: piece.type === "C" ? "50%" : "0%",
+                      border: isLastMove
+                        ? "2px solid #f59e0b"
+                        : "1px solid #475569",
+                      display: "flex",
+                      justifyContent: "center",
+                      alignItems: "center",
+                      fontSize: 10,
+                      color: piece.player === "B" ? "#ffffff" : "#111827",
+                    }}
+                  >
+                    {piece.type === "S" ? "■" : piece.type === "T" ? "▲" : "●"}
+                  </div>
+                );
+              })}
             </div>
           );
-        }
-        return rowElements;
-      })}
+        }),
+      )}
     </div>
   );
 };

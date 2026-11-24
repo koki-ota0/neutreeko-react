@@ -1,70 +1,164 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for AI coding assistants working in this repository. See
+[README.md](README.md) for the full setup / deployment guide.
 
-## Project Overview
+## Project overview
 
-This is a game tree visualization and analysis tool for two abstract strategy board games: **Neutreeko** (5x5) and **Pyrga** (4x4). The application allows exploring and building game trees with legal moves computed by the backend.
+A game-tree visualization and analysis tool for **Neutreeko** (5×5 sliding
+pieces, three in a row wins) and **Pyrga** (4×4 placement game). A React +
+TypeScript frontend renders the tree with ReactFlow; a FastAPI backend generates
+legal moves and persists the graph.
 
-## Development Commands
+## Development commands
 
-### Frontend (React + TypeScript)
 ```bash
+# Backend (run from repo root)
+python -m venv .venv && source .venv/bin/activate
+pip install -r backend/requirements-dev.txt
+uvicorn backend.api:app --reload --host 0.0.0.0 --port 8000
+pytest backend
+
+# Frontend
 cd frontend
-npm start          # Start dev server at http://localhost:3000
-npm run build      # Production build
-npm test           # Run tests
+npm ci
+npm start
+npm run typecheck
+npm run test:ci
+CI=true npm run build
 ```
 
-### Backend (FastAPI + Python)
-```bash
-cd backend
-uvicorn api:app --reload  # Start API server at http://127.0.0.1:8000
-```
-
-Both servers must run simultaneously for the app to function.
+Both servers must run at once. `REACT_APP_API_URL` (frontend) defaults to
+`http://127.0.0.1:8000`; `ALLOWED_ORIGINS` (backend) must include the browser
+origin. Optional shared secret: `API_TOKEN` / `REACT_APP_API_TOKEN`.
 
 ## Architecture
 
-### State Management
-The application uses a dual-state architecture in `useGraphLogic.ts`:
-- **ReactFlow state** (`nodes`, `edges`): Visual graph with positions for rendering
-- **nodesMap**: Internal game tree data indexed by node ID, stores board state, player, parent/child relationships, and colors
+`backend/rules.py` holds pure, unit-tested rule functions; `schemas.py` holds
+the single definition of each Pydantic model; `storage.py` handles atomic
+file/Redis persistence and legacy normalization; `exploration.py` holds the
+colour-independent minimax pruning engine / migration CLI; `api.py` is just
+FastAPI wiring.
 
-Key operations sync both states: position changes update `nodesMap`, game state changes update ReactFlow nodes.
+`frontend/src/game/moves.ts` holds pure board/move helpers and
+`game/exploration.ts` holds the pure three-rule engine. The state hook
+(`hooks/useGraphLogic.ts`) keeps two synchronized structures:
 
-### Frontend (`frontend/src/`)
-- **App.tsx**: Root component with game type selector (neutreeko/pyrga)
-- **components/GraphContainer.tsx**: Main container using ReactFlow for graph visualization
-- **components/NodePanel.tsx**: Side panel for node operations (add moves, delete, color coding)
-- **components/board/**: Game board renderers
-  - `NeutreekoBoard.tsx`: 5x5 grid, B/W pieces
-  - `PyrgaBoard.tsx`: 4x4 grid with stacking pieces (S/T/C types)
-- **hooks/useGraphLogic.ts**: Core state management for graph, API communication, and tree operations
-- **types/**: TypeScript interfaces (`MyNodeData`, `PyrgaPiece`)
+- **ReactFlow state** (`nodes`, `edges`): positions, visibility and node `data`.
+- **nodesMap**: game tree keyed by node id (board, player, parent/children,
+  color, lastMove, moveNote, outcome, analysis).
 
-### Backend (`backend/`)
-- **api.py**: FastAPI server with endpoints:
-  - `GET /load_graph?game_type=` - Load saved graph from JSON
-  - `POST /save_graph?game_type=` - Persist graph state
-  - `POST /legal_moves/neutreeko` - Compute legal moves for Neutreeko (filters out moves that would allow opponent immediate win)
-  - `POST /legal_moves/pyrga` - Compute legal moves for Pyrga (placement rules based on last piece type: S=adjacent, T=line, C=same cell)
+All state writes go through a ref-backed `commit` helper so async expansions
+always read current values. Positions are *not* mirrored into `nodesMap` (that
+used to re-render every node on each drag). `App.tsx` keys `GraphContainer` by
+`gameType` so switching games remounts state and cancels in-flight loads.
 
-### Data Flow
-1. Graph state is loaded from `backend/data/{game_type}_graph.json` on startup
-2. `nodesMap` stores game state (board, player, children) keyed by node ID
-3. `nodeIndex` provides fast lookup by board+player key to detect transpositions
-4. ReactFlow `nodes`/`edges` arrays handle visual positioning
-5. Legal moves are fetched from backend and create child nodes in the tree
+### Board and move encodings (critical)
 
-### Node Color Coding
-Colors indicate node analysis status:
-- `#ffffff` (white): Unanalyzed
-- `#285294` (dark blue): Winning position
-- `#ffff99` (yellow): Must not choose (opponent wins)
-- `#ff99ff` (pink): No legal moves
-- `#99ff99` / `#11c101ff` (green): Currently playing / played
+| | Neutreeko | Pyrga |
+| --- | --- | --- |
+| Board | `string[5][5]` (`"."`, `"B"`, `"W"`) | `PyrgaPiece[4][4][]`, each cell 0–3 pieces, one per type |
+| Move | `[fromRow, fromCol, toRow, toCol]` | `[row, col, pieceIndex]`, `0=S, 1=T, 2=C` |
+| Extra request field | — | `last_move: [row, col, piece]` or `null` for the first move |
 
-### Game Rules
-- **Neutreeko**: Pieces slide in 8 directions until blocked. Win by aligning 3 pieces.
-- **Pyrga**: Place S/T/C pieces with movement constraints based on opponent's last piece type. Max 3 pieces per cell, no duplicate types.
+`lastMove` is stored per Pyrga node because it determines the next placement
+zone. Transposition keys include it for Pyrga. Do not share a single
+move-application path across the two games.
+
+### API
+
+- `GET /health`
+- `GET /load_graph?game_type=neutreeko|pyrga`
+- `POST /save_graph?game_type=...` — validated `GraphData`, atomic write,
+  optional `X-API-Token` auth.
+- `POST /legal_moves/neutreeko`, `POST /legal_moves/pyrga` — both return
+  `{moves, winning_moves, unsafe_moves, game_over, winner}`.
+
+`moves` is the **complete** legal move list. Pruning is explicit: "Mark risky
+moves" adds structured `moveNote` annotations from `unsafe_moves`, while
+"Apply exploration rules" performs deterministic minimax pruning. Invalid input
+returns 422, and decided positions set `game_over` / `winner`.
+
+### Node color semantics (three logical categories)
+
+Single source of truth: `frontend/src/constants/colors.ts`. Do **not** treat
+these as one flat status list — they mean different things and are used by
+different operations. The UI has two swatch groups because the old move-note
+colour is now an alias of the automatic `losing` evaluation colour.
+
+- **A. `POSITION_COLORS` (automatic, from `currentPlayer`'s perspective)**:
+  `#ffffff` unanalyzed, `#0f766e` certain win (rules 1/3), `#ffff99` losing
+  (rule 2), `#285294` decided board (child only), `#ff99ff` no moves,
+  `#ffcc99` loop. `#285294` goes on the **child** decided terminal position,
+  never on the parent that chose the move. A certain win is a *new* colour;
+  the blue marker is not reused as a minimax result.
+- **B. `moveNote` (structured note on the incoming move)**: dangerous/risky
+  children carry `moveNote: "mustNotChoose"` and a `⚠ MUST NOT CHOOSE` row. The
+  compatibility alias `MOVE_NOTE_COLORS.mustNotChoose` equals `losing`, but a
+  risky move is **not** a proven loss. "Mark risky moves" must not paint the
+  parent yellow.
+- **C. `MEMO_COLORS` (manual work notes, never auto-assigned)**: `#cccccc`
+  root, `#99ff99` playing, `#11c101ff` played, `#ff9999` avoid, `#9999ff`
+  almost winning.
+
+`HIDE_RESOLVED_COLORS` = decided/noMoves/loop positions + evaluated
+certain-win/losing positions. `hideResolved` hides **all** of them, including
+`#0f766e` certain wins and `#ffff99` losses; hidden nodes are not deleted and
+remain reusable. `SKIP_REEXPANSION_COLORS` is the same set today, but is a
+separate name because skipping re-expansion is a different operation.
+`showPlayLine` filters on green manual memos; structured move notes and memos
+are not hidden by `hideResolved`. Never infer a minimax outcome from a colour
+alone: the persisted `outcome` field is authoritative.
+
+### Readability: never dye the board cells
+
+`BoardRenderProps` has no `color` prop. `NeutreekoBoard` / `PyrgaBoard` always
+use white / slate cells; the outer `BoardNode` carries the status. Do not
+reintroduce a coloured board background. Status must stay readable without
+colour perception:
+
+- `getStatusMeta(color)` supplies `label`, `icon`, `shortLabel`, `accent`,
+  `chipBg`, `chipText`, `borderStyle`, `borderWidth` and `pattern`.
+- `BoardNode` renders a labelled chip, icon, short code, 8px accent bar,
+  distinct border, subtle chrome-only pattern, and explicit `OUTCOME: WIN/LOSS`
+  / `⚠ MUST NOT CHOOSE` rows.
+- `NodePanel` uses the same metadata for its status card and labelled swatch
+  buttons; `readableTextOn()` handles dark, light and 8-digit hex colours.
+- `BoardNode.test.tsx` / `NodePanel.test.tsx` assert the neutral board surface
+  and the text cues. Unknown persisted colours get a labelled fallback.
+
+### Exploration rules and persisted migration
+
+`outcome` is `win` / `loss` / `unknown` from the node's `currentPlayer` view.
+
+1. Immediate winning move → `win`; choose that move and prune unknown siblings.
+2. Any `win` child → `loss`; prune unknown siblings.
+3. All children `loss` → `win`; record it.
+
+Decided children are never removed (reuse for transpositions/future
+exploration). Only unknown branches are pruned; shared DAG nodes survive if any
+other parent still references them. `useGraphLogic` applies the rules after
+expansion and from the explicit button; `BoardNode` shows ✓ / × outcome badges.
+
+`backend/exploration.py` performed the one-time in-place migration of
+`backend/data/neutreeko_graph.json`, seeding old `#285294=win`,
+`#ffff99=loss`, `#ff99ff=loss`, then writing `outcome`, `analysis`, recovered
+`move`, `#0f766e` certain wins and `#ffff99` losses. Result: 7,992 → 7,881
+nodes, 8,360 → 8,231 edges, 292 wins / 2,875 losses / 4,825 unknowns, 111
+unknown nodes removed, 8 decided children kept, 0 dangling edges. A
+gitignored backup is at `backend/data/neutreeko_graph.json.bak`. Re-running
+the CLI dry-run is idempotent (0 further prunes).
+
+## Conventions / gotchas
+
+- `npm ci` is required (the lockfile is checked in). `@types/d3-dispatch` is
+  pinned to 3.0.6 via `overrides` because newer releases use TS 5 syntax that
+  CRA 5's TypeScript 4.9 cannot parse.
+- Don't commit `backend/data/*.tmp`, `backend/data/*.bak`, `__pycache__`,
+  `.env*.local` files or generated `backend/tmp_data/`.
+- `backend/data/neutreeko_graph.json` is ~10 MB of generated analysis data and
+  now carries explicit `outcome` fields — avoid rewriting it casually. Use the
+  CLI dry-run / backup before another migration.
+- Game rules have unit tests in `backend/tests/` and
+  `frontend/src/**/*.test.ts(x)`; add a regression test when changing rules or
+  move encodings.
