@@ -2,9 +2,11 @@
 
 NOTE: these are the ORIGINAL migration-time rules. The live frontend engine in
 ``frontend/src/game/exploration.ts`` now gives highest priority to the
-three-in-a-row case (a parent with a decided child is ``loss``). This module is
-kept for the already-applied migration and is intentionally NOT re-run against
-the saved graph; re-running it would restore the older rule-1 semantics.
+three-in-a-row case (a parent with a decided child is ``loss``), uses the
+inverse UI labels (``loss`` = Certain win, ``win`` = Losing), and applies
+stronger rule-2 sibling pruning. This module is kept for the already-applied
+migration and is intentionally NOT re-run against the saved graph; re-running
+it would restore the older rules and the older display mapping.
 
 The original three rules, expressed on a minimax ``outcome`` that is always
 viewed from the perspective of the node's ``currentPlayer``:

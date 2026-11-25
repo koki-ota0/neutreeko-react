@@ -41,17 +41,22 @@ colour-independent minimax pruning engine / migration CLI; `api.py` is just
 FastAPI wiring.
 
 `frontend/src/game/moves.ts` holds pure board/move helpers and
-`game/exploration.ts` holds the pure three-rule engine. `outcome` is always
-viewed from that node's `currentPlayer`. Rule 1 has **highest priority**: a
-parent with a three-in-a-row child (or a legal move that would create one) is
-`loss` / `Losing`, and that decided child is NOT added during live expansion.
-This deliberately beats rule 3 (all children `loss` → `win`), rule 2 and even an
-already-persisted `win` outcome. The hook does not set `outcome` for this case:
-`resolveExploration` is the single source of truth, so `ruleHits.rule1` counts
-it. Rule 2 (`win` child → `loss`) and rule 3 are unchanged.
-`backend/exploration.py` keeps the
-original one-time migration semantics; it is intentionally not re-run against
-the saved graph. The state hook (`hooks/useGraphLogic.ts`) keeps two
+`game/exploration.ts` holds the pure three-rule engine. Stored `outcome` is
+from that node's `currentPlayer`, but the UI is **inverted to the previous
+mover**: `loss` → **Certain win** (`#0f766e`), `win` → **Losing** (`#ffff99`).
+Rule 1 has **highest priority**: a parent with a three-in-a-row child (or a
+legal move that would create one) becomes `loss` (UI Certain win), and that
+decided child is NOT added during live expansion. This deliberately beats
+rules 2/3 and even an already-persisted `win`/`loss` outcome. The hook does
+not set `outcome` for this case: `resolveExploration` is the single source of
+truth, so `ruleHits.rule1` counts it.
+Rule 2 (**any `loss` child → parent `win`**, UI "Certain win child → Losing
+parent") also deletes the parent's other white **Unanalyzed** children and
+their whole subtrees. Rule 3 (**all children `win` → parent `loss`**, UI "all
+Losing children → Certain win") then propagates one level higher via rule 2.
+`backend/exploration.py` keeps the original one-time migration semantics
+(currentPlayer-relative); it is intentionally not re-run against the saved
+graph. The state hook (`hooks/useGraphLogic.ts`) keeps two
 synchronized structures:
 
 - **ReactFlow state** (`nodes`, `edges`): positions, visibility and node `data`.
@@ -86,10 +91,10 @@ move-application path across the two games.
 
 `moves` is the **complete** legal move list. `unsafe_moves` (one-reply losses)
 are **excluded from expansion before a child is created**; if all moves are
-unsafe the parent becomes `Losing`. "Mark risky moves" now only annotates risky
-children inherited from older graphs. "Apply exploration rules" performs the
-deterministic minimax pruning. Invalid input returns 422, and decided positions
-set `game_over` / `winner`.
+unsafe the parent is stored as `loss` (UI **Certain win**). "Mark risky moves"
+now only annotates risky children inherited from older graphs. "Apply exploration
+rules" performs the deterministic minimax pruning. Invalid input returns 422,
+and decided positions set `game_over` / `winner`.
 
 ### Node color semantics (three logical categories)
 
@@ -98,17 +103,19 @@ these as one flat status list — they mean different things and are used by
 different operations. The UI has two swatch groups because the old move-note
 colour is now an alias of the automatic `losing` evaluation colour.
 
-- **A. `POSITION_COLORS` (automatic, from `currentPlayer`'s perspective)**:
-  `#ffffff` unanalyzed, `#0f766e` certain win (rules 1/3), `#ffff99` losing
-  (rule 2), `#285294` decided board (child only), `#ff99ff` no moves,
-  `#ffcc99` loop. `#285294` goes on the **child** decided terminal position,
-  never on the parent that chose the move. A certain win is a *new* colour;
-  the blue marker is not reused as a minimax result.
+- **A. `POSITION_COLORS` (automatic; stored `outcome` is `currentPlayer`-relative,
+  UI label is the INVERSE / previous-mover perspective)**:
+  `#ffffff` unanalyzed, `#0f766e` **Certain win** (stored `loss`, rules 1/3),
+  `#ffff99` **Losing** (stored `win`, rule 2), `#285294` decided board (child
+  only), `#ff99ff` no moves, `#ffcc99` loop. `#285294` goes on the **child**
+  decided terminal position, never on the parent that chose the move. A certain
+  win is a *new* colour; the blue marker is not reused as a minimax result.
 - **B. `moveNote` (structured note on the incoming move)**: dangerous/risky
   children carry `moveNote: "mustNotChoose"` and a `⚠ MUST NOT CHOOSE` row. The
-  compatibility alias `MOVE_NOTE_COLORS.mustNotChoose` equals `losing`, but a
-  risky move is **not** a proven loss. Unsafe moves are skipped during
-  expansion; "Mark risky moves" must not paint the parent yellow.
+  compatibility alias `MOVE_NOTE_COLORS.mustNotChoose` equals the Losing
+  evaluation colour, but a risky move is **not** a proven result. Unsafe moves
+  are skipped during expansion; "Mark risky moves" must not paint the parent
+  yellow.
 - **C. `MEMO_COLORS` (manual work notes, never auto-assigned)**: `#cccccc`
   root, `#99ff99` playing, `#11c101ff` played, `#ff9999` avoid, `#9999ff`
   almost winning.

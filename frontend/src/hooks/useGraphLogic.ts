@@ -405,7 +405,8 @@ export const useGraphLogic = (gameType: GameType, Board: BoardRenderer) => {
 
   /**
    * Apply the three minimax rules to the WHOLE current graph. Decided nodes
-   * are retained as reusable evidence; only still-unknown branches are pruned.
+   * are retained as reusable evidence; rule 2 additionally removes the other
+   * white Unanalyzed sibling subtrees of a freshly resolved parent.
    */
   const applyExplorationRules = useCallback((): ExplorationStats => {
     const result = resolveExploration(
@@ -487,7 +488,10 @@ export const useGraphLogic = (gameType: GameType, Board: BoardRenderer) => {
     [patchNode],
   );
 
-  /** Explicit exploration result; colours follow the new evaluation palette. */
+  /**
+   * Explicit exploration result. `outcome` is currentPlayer-relative; the
+   * palette intentionally shows the INVERSE (previous-mover perspective).
+   */
   const setNodeOutcome = useCallback(
     (nodeId: string, outcome: Exclude<NodeOutcome, null>) => {
       const node = nodesMapRef.current[nodeId];
@@ -505,8 +509,8 @@ export const useGraphLogic = (gameType: GameType, Board: BoardRenderer) => {
 
   /**
    * A move note is stored on the CHILD (which incoming move is flagged). It is
-   * a structured annotation, not a minimax result: yellow now means a proven
-   * `loss` and is only assigned by the exploration rules.
+   * a structured annotation, not a minimax result: the evaluated yellow/teal
+   * colours are only assigned by the exploration rules.
    */
   const setMoveNotes = useCallback((ids: string[], note: MoveNote) => {
     const target = new Set(ids);
@@ -662,8 +666,8 @@ export const useGraphLogic = (gameType: GameType, Board: BoardRenderer) => {
 
         // Highest priority: a move that makes three in a row would create a
         // decided child. Do NOT add that child. Let rule 1 mark this parent
-        // Losing from its own currentPlayer's perspective (single source of
-        // truth for outcomes), instead of setting the outcome here.
+        // `loss` (UI "Certain win" for the player who just moved); the rule
+        // engine is the single source of truth for outcomes.
         if (analysis.winningMoves.length > 0) {
           applyExplorationRules();
           return;
@@ -678,7 +682,8 @@ export const useGraphLogic = (gameType: GameType, Board: BoardRenderer) => {
         );
 
         if (candidateMoves.length === 0) {
-          // Every legal move loses in one reply: this side is Losing. Make the
+          // Every legal move loses in one reply for the side to move. Store
+          // `loss`; the UI shows the inverse label "Certain win". Make the
           // no-op expansion visible instead of leaving the parent unanalyzed.
           setNodeOutcome(nodeId, "loss");
           applyExplorationRules();

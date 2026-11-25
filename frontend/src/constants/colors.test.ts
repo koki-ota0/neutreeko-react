@@ -37,9 +37,9 @@ describe("color semantics", () => {
     expect(POSITION_COLORS.losing).toBe("#ffff99");
   });
 
-  it("maps outcomes to the new evaluation colours", () => {
-    expect(OUTCOME_COLORS.win).toBe(POSITION_COLORS.certainWin);
-    expect(OUTCOME_COLORS.loss).toBe(POSITION_COLORS.losing);
+  it("maps stored outcomes to the inverse previous-mover UI colours", () => {
+    expect(OUTCOME_COLORS.win).toBe(POSITION_COLORS.losing);
+    expect(OUTCOME_COLORS.loss).toBe(POSITION_COLORS.certainWin);
   });
 
   it("exposes every color in exactly one swatch group", () => {

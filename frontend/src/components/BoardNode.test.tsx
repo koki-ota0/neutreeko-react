@@ -50,9 +50,10 @@ beforeEach(() => boardSpy.mockClear());
 
 describe("BoardNode readable status chrome", () => {
   it("spells out a certain win with text, icon and outcome instead of dyeing the board", () => {
+    // Stored `loss` is shown as Certain win (previous mover's perspective).
     renderNode({
       color: POSITION_COLORS.certainWin,
-      outcome: "win",
+      outcome: "loss",
     });
 
     expect(screen.getByText("Certain win")).toBeInTheDocument();
@@ -66,9 +67,10 @@ describe("BoardNode readable status chrome", () => {
   });
 
   it("shows a losing result and keeps the board surface neutral", () => {
+    // Stored `win` is shown as Losing (previous mover's perspective).
     renderNode({
       color: POSITION_COLORS.losing,
-      outcome: "loss",
+      outcome: "win",
     });
 
     expect(screen.getByText("Losing")).toBeInTheDocument();

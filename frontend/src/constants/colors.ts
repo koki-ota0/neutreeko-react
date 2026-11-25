@@ -1,11 +1,12 @@
 /**
  * Node colors are split into categories with *different* meanings.
  *
- * A. POSITION_COLORS - evaluation / state of the position, viewed from its
- *    `currentPlayer`. Assigned only by the analyser. Includes the exploration
- *    results `certainWin` (this side can force a win) and `losing` (the
- *    opponent can). `winning` stays reserved for a DECIDED board (three in a
- *    row already on the board: the player who just moved won).
+ * A. POSITION_COLORS - evaluation / state of the position. The stored
+ *    `outcome` is from `currentPlayer`'s perspective, but the UI labels are
+ *    deliberately inverted to the PREVIOUS mover's perspective: a stored
+ *    `loss` (side to move is lost) is shown as **Certain win** for the player
+ *    who just moved, and a stored `win` is shown as **Losing**. `winning`
+ *    stays reserved for a DECIDED board (three in a row already on the board).
  * B. Move notes - NOT a colour: stored as the structured `moveNote` field on
  *    the child. A risky-move note never changes the parent's colour; yellow
  *    is reserved for a proven `losing` evaluation result.
@@ -19,9 +20,9 @@
 // A. Position evaluation (automatic)
 export const POSITION_COLORS = {
   unanalyzed: "#ffffff",
-  /** Exploration result: this side can force a win. */
+  /** UI label: the player who just moved can force a win (stored `loss`). */
   certainWin: "#0f766e",
-  /** Exploration result: this side is lost (the opponent can force a win). */
+  /** UI label: the player who just moved is lost (stored `win`). */
   losing: "#ffff99",
   /** Decided board: three in a row; the player who just moved won. */
   winning: "#285294",
@@ -65,9 +66,14 @@ export type MoveNote = "mustNotChoose" | null;
 /** Persisted exploration result, always from the node's currentPlayer view. */
 export type NodeOutcome = "win" | "loss" | "unknown" | null;
 
+/**
+ * Stored outcomes stay `currentPlayer`-relative; the DISPLAY labels are the
+ * inverse, from the previous mover's perspective. So `loss` (side to move is
+ * lost) is teal "Certain win", and `win` is yellow "Losing".
+ */
 export const OUTCOME_COLORS: Record<"win" | "loss", string> = {
-  win: POSITION_COLORS.certainWin,
-  loss: POSITION_COLORS.losing,
+  win: POSITION_COLORS.losing,
+  loss: POSITION_COLORS.certainWin,
 };
 
 /** Decided boards and exhausted boards. */
@@ -187,7 +193,8 @@ const POSITION_STATUS: NodeStatusMeta[] = [
     label: "Certain win",
     shortLabel: "WIN",
     icon: "✓",
-    description: "This side can force a win (rule 1 / 3)",
+    description:
+      "The player who just moved can force a win (stored outcome loss)",
     category: "position",
     accent: "#0f766e",
     chipBg: "#0f766e",
@@ -200,7 +207,8 @@ const POSITION_STATUS: NodeStatusMeta[] = [
     label: "Losing",
     shortLabel: "LOSS",
     icon: "×",
-    description: "Opponent can force a win (rule 2)",
+    description:
+      "The player who just moved is lost (stored outcome win)",
     category: "position",
     accent: "#a16207",
     chipBg: "#ffff99",
