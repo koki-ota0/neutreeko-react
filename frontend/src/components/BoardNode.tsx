@@ -21,10 +21,13 @@ export const BoardNode = React.memo(function BoardNode({
   const flagged = data?.moveNote === "mustNotChoose";
   const outcome = data?.outcome;
 
+  // Stored `outcome` is currentPlayer-relative; the UI shows the INVERSE,
+  // from the player who just moved. `loss` displays as a certain win, `win`
+  // as a loss. Colours come from OUTCOME_COLORS, which is inverted too.
   const outcomeLabel =
-    outcome === "win" ? "WIN" : outcome === "loss" ? "LOSS" : null;
+    outcome === "loss" ? "WIN" : outcome === "win" ? "LOSS" : null;
   const outcomeIcon =
-    outcome === "win" ? "✓" : outcome === "loss" ? "×" : null;
+    outcome === "loss" ? "✓" : outcome === "win" ? "×" : null;
   const outcomeDescription =
     outcome && outcome !== "unknown" ? OUTCOME_LABELS[outcome] : null;
   const outcomeAccent =

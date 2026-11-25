@@ -182,11 +182,14 @@ export const NodePanel: React.FC<NodePanelProps> = ({
             <small>
               Last pass: {explorationStats.nodesRemoved} unknown nodes /{" "}
               {explorationStats.edgesCut} edges pruned ·{" "}
-              {explorationStats.outcomeWin} certain wins /{" "}
-              {explorationStats.outcomeLoss} losses · rule hits{" "}
+              {explorationStats.outcomeLoss} certain wins /{" "}
+              {explorationStats.outcomeWin} losses · rule hits{" "}
               {explorationStats.ruleHits.rule1}/{explorationStats.ruleHits.rule2}/
-              {explorationStats.ruleHits.rule3} (1 = three-in-a-row priority,
-              overrides 3) ·{" "}
+              {explorationStats.ruleHits.rule3} (1 = three-in-a-row priority;
+              2 = Certain win child → Losing parent; 3 = all Losing children →
+              Certain win) ·{" "}
+              {explorationStats.unanalyzedSiblingsPruned} unanalyzed sibling
+              subtrees pruned ·{" "}
               {explorationStats.decidedChildrenKept} decided children kept.
             </small>
           </div>

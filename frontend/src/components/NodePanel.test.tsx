@@ -24,7 +24,8 @@ const node: MyNodeData = {
   hidden: false,
   hiddenChildren: false,
   moveNote: null,
-  outcome: "win",
+  // Stored `loss` is displayed as Certain win (previous mover's perspective).
+  outcome: "loss",
 };
 
 const showAllSpy = jest.fn();
@@ -66,7 +67,7 @@ describe("NodePanel readable status", () => {
     expect(screen.getByText("WIN")).toBeInTheDocument();
     expect(screen.getAllByText("✓").length).toBeGreaterThanOrEqual(2);
     expect(
-      screen.getByText(/Certain win \(this side can force a win\)/),
+      screen.getByText(/Certain win \(the player who just moved can force a win\)/),
     ).toBeInTheDocument();
     expect(screen.getByTestId("panel-board-surface")).toHaveStyle(
       "background-color: #ffffff",

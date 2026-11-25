@@ -163,7 +163,7 @@ describe("useGraphLogic", () => {
     expect(result.current.nodesMap[first].moveNote).toBeNull();
   });
 
-  it("marks the parent Losing when every legal move loses in one reply", async () => {
+  it("marks the parent Certain win when every legal move loses in one reply", async () => {
     installFetch((url) => {
       if (url.includes("/load_graph")) return graphFor("neutreeko");
       if (url.includes("/legal_moves/neutreeko")) {
@@ -194,10 +194,12 @@ describe("useGraphLogic", () => {
     expect(result.current.nodesMap.node_0.children).toHaveLength(0);
     expect(result.current.edges).toHaveLength(0);
     expect(result.current.nodesMap.node_0.outcome).toBe("loss");
-    expect(result.current.nodesMap.node_0.color).toBe(POSITION_COLORS.losing);
+    expect(result.current.nodesMap.node_0.color).toBe(
+      POSITION_COLORS.certainWin,
+    );
   });
 
-  it("puts the decided colour on the reached child and makes its parent Losing", async () => {
+  it("puts the decided colour on the reached child and makes its parent Certain win", async () => {
     installFetch((url) => {
       if (url.includes("/load_graph")) {
         const graph = graphFor("neutreeko");
@@ -239,11 +241,10 @@ describe("useGraphLogic", () => {
     expect(result.current.nodesMap.node_1.color).toBe(POSITION_COLORS.winning);
     expect(result.current.nodesMap.node_1.outcome).toBe("loss");
     expect(result.current.nodesMap.node_1.winner).toBe("B");
-    // B. Rule 1 has priority: a parent with a three-in-a-row child is Losing
-    // from its own currentPlayer's perspective, even though rule 3 would
-    // otherwise call it a certain win.
+    // B. Rule 1 has priority: a parent with a three-in-a-row child is stored
+    // as `loss` and shown as Certain win (previous mover's perspective).
     expect(result.current.nodesMap.node_0.color).toBe(
-      POSITION_COLORS.losing,
+      POSITION_COLORS.certainWin,
     );
     expect(result.current.nodesMap.node_0.outcome).toBe("loss");
     // The old blue-on-parent / yellow-on-child behaviour is gone.
@@ -275,7 +276,7 @@ describe("useGraphLogic", () => {
     expect(result.current.nodesMap.node_0.outcome).toBe("loss");
   });
 
-  it("does not add a three-in-a-row child and marks the parent Losing first", async () => {
+  it("does not add a three-in-a-row child and marks the parent Certain win first", async () => {
     installFetch((url) => {
       if (url.includes("/load_graph")) return graphFor("neutreeko");
       if (url.includes("/legal_moves/neutreeko")) {
@@ -304,7 +305,7 @@ describe("useGraphLogic", () => {
     expect(result.current.edges).toHaveLength(0);
     expect(result.current.nodesMap.node_0.outcome).toBe("loss");
     expect(result.current.nodesMap.node_0.color).toBe(
-      POSITION_COLORS.losing,
+      POSITION_COLORS.certainWin,
     );
     expect(result.current.explorationStats?.ruleHits.rule1).toBe(1);
   });
@@ -413,9 +414,9 @@ describe("useGraphLogic", () => {
         nodesMap.node_3 = child(
           "node_3",
           POSITION_COLORS.certainWin,
-          "win",
+          "loss",
         );
-        nodesMap.node_4 = child("node_4", POSITION_COLORS.losing, "loss");
+        nodesMap.node_4 = child("node_4", POSITION_COLORS.losing, "win");
         nodesMap.node_5 = child("node_5", POSITION_COLORS.unanalyzed);
         nodesMap.node_6 = {
           ...child("node_6", POSITION_COLORS.unanalyzed),
@@ -460,8 +461,8 @@ describe("useGraphLogic", () => {
       result.current.nodes.find((node) => node.id === "node_6")?.hidden,
     ).toBe(true);
     // Hiding must not delete reusable evaluation results.
-    expect(result.current.nodesMap.node_3.outcome).toBe("win");
-    expect(result.current.nodesMap.node_4.outcome).toBe("loss");
+    expect(result.current.nodesMap.node_3.outcome).toBe("loss");
+    expect(result.current.nodesMap.node_4.outcome).toBe("win");
   });
 
   it("showAllNodes restores every saved hidden node and edge", async () => {
@@ -481,7 +482,7 @@ describe("useGraphLogic", () => {
           color: POSITION_COLORS.certainWin,
           hidden: true,
           hiddenChildren: true,
-          outcome: "win",
+          outcome: "loss",
         };
         nodesMap.node_0.children = ["node_1"];
         body.edges = [
@@ -536,7 +537,7 @@ describe("useGraphLogic", () => {
     expect(result.current.selectedNodeId).toBeNull();
   });
 
-  it("applies the rules to a loaded graph and prunes only unknown branches", async () => {
+  it("applies the rules to a persisted Losing node and prunes only unknown branches", async () => {
     installFetch((url) => {
       if (url.includes("/load_graph")) {
         const graph = graphFor("neutreeko");
@@ -580,14 +581,103 @@ describe("useGraphLogic", () => {
       result.current.applyExplorationRules();
     });
 
+    // Persisted `win` is displayed as Losing (#ffff99), not Certain win.
     expect(result.current.nodesMap.node_0.color).toBe(
-      POSITION_COLORS.certainWin,
+      POSITION_COLORS.losing,
     );
+    expect(result.current.nodesMap.node_0.outcome).toBe("win");
     expect(result.current.nodesMap.node_1).toBeDefined();
     expect(result.current.nodesMap.node_2).toBeUndefined();
     expect(result.current.edges.map((edge) => edge.id)).toEqual(["e_0_1"]);
     expect(result.current.explorationStats?.nodesRemoved).toBe(1);
     expect(result.current.explorationStats?.decidedChildrenKept).toBe(1);
+    expect(result.current.explorationStats?.unanalyzedSiblingsPruned).toBe(0);
+  });
+
+  it("propagates a Certain win child to a Losing parent and cuts sibling subtrees", async () => {
+    installFetch((url) => {
+      if (url.includes("/load_graph")) {
+        const graph = graphFor("neutreeko");
+        const body = graph.body as Record<string, unknown>;
+        const nodesMap = body.nodesMap as Record<string, Record<string, unknown>>;
+        nodesMap.node_0.children = ["node_1", "node_2", "node_3"];
+        nodesMap.node_1 = {
+          id: "node_1",
+          board: NEUTREEKO_INITIAL_BOARD,
+          currentPlayer: "W",
+          parentId: "node_0",
+          children: [],
+          color: POSITION_COLORS.certainWin,
+          hidden: false,
+          hiddenChildren: false,
+          outcome: "loss",
+        };
+        nodesMap.node_2 = {
+          id: "node_2",
+          board: NEUTREEKO_INITIAL_BOARD,
+          currentPlayer: "W",
+          parentId: "node_0",
+          children: ["node_4"],
+          color: NODE_COLORS.unanalyzed,
+          hidden: false,
+          hiddenChildren: false,
+          outcome: "unknown",
+        };
+        nodesMap.node_4 = {
+          id: "node_4",
+          board: NEUTREEKO_INITIAL_BOARD,
+          currentPlayer: "B",
+          parentId: "node_2",
+          children: [],
+          color: NODE_COLORS.unanalyzed,
+          hidden: false,
+          hiddenChildren: false,
+          outcome: "unknown",
+        };
+        nodesMap.node_3 = {
+          id: "node_3",
+          board: NEUTREEKO_INITIAL_BOARD,
+          currentPlayer: "W",
+          parentId: "node_0",
+          children: [],
+          color: POSITION_COLORS.losing,
+          hidden: false,
+          hiddenChildren: false,
+          outcome: "win",
+        };
+        body.edges = [
+          { id: "e_0_1", source: "node_0", target: "node_1" },
+          { id: "e_0_2", source: "node_0", target: "node_2" },
+          { id: "e_0_3", source: "node_0", target: "node_3" },
+          { id: "e_2_4", source: "node_2", target: "node_4" },
+        ];
+        return graph;
+      }
+      return { status: 404, body: {} };
+    });
+
+    const { result } = await mount("neutreeko");
+    await act(async () => {
+      result.current.applyExplorationRules();
+    });
+
+    expect(result.current.nodesMap.node_0.outcome).toBe("win");
+    expect(result.current.nodesMap.node_0.color).toBe(POSITION_COLORS.losing);
+    expect(result.current.nodesMap.node_0.children).toEqual([
+      "node_1",
+      "node_3",
+    ]);
+    expect(result.current.nodesMap.node_1).toBeDefined();
+    expect(result.current.nodesMap.node_3).toBeDefined();
+    expect(result.current.nodesMap.node_2).toBeUndefined();
+    expect(result.current.nodesMap.node_4).toBeUndefined();
+    expect(result.current.edges.map((edge) => edge.id)).toEqual([
+      "e_0_1",
+      "e_0_3",
+    ]);
+    expect(result.current.explorationStats?.ruleHits.rule2).toBe(1);
+    expect(result.current.explorationStats?.unanalyzedSiblingsPruned).toBe(1);
+    expect(result.current.explorationStats?.nodesRemoved).toBe(2);
   });
 
   it("surfaces save failures instead of reporting success", async () => {

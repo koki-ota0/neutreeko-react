@@ -22,7 +22,7 @@ const graph = (...nodes: MyNodeData[]): NodesMap =>
   Object.fromEntries(nodes.map((entry) => [entry.id, entry]));
 
 describe("resolveExploration", () => {
-  it("rule 1 makes a three-in-a-row parent Losing with highest priority", () => {
+  it("rule 1 makes a three-in-a-row parent Certain win (stored loss)", () => {
     const result = resolveExploration(
       graph(
         node("root", {
@@ -48,15 +48,16 @@ describe("resolveExploration", () => {
     );
 
     expect(result.nodesMap.root.outcome).toBe("loss");
-    expect(result.nodesMap.root.color).toBe(POSITION_COLORS.losing);
+    expect(result.nodesMap.root.color).toBe(POSITION_COLORS.certainWin);
     expect(result.nodesMap.root.children).toEqual(["winner", "decided"]);
     expect(result.nodesMap.decided.color).toBe(POSITION_COLORS.winning);
     expect(result.removedIds).toEqual(["unknown"]);
     expect(result.stats.ruleHits.rule1).toBe(1);
     expect(result.stats.decidedChildrenKept).toBe(2);
+    expect(result.stats.unanalyzedSiblingsPruned).toBe(0);
   });
 
-  it("three-in-a-row beats rule 3 even when every child outcome is loss", () => {
+  it("three-in-a-row beats rule 3 even when every other child is Losing", () => {
     const result = resolveExploration(
       graph(
         node("root", { children: ["three", "losing"] }),
@@ -71,22 +72,27 @@ describe("resolveExploration", () => {
             winner: "B",
           },
         }),
-        node("losing", { parentId: "root", outcome: "loss" }),
+        node("losing", {
+          parentId: "root",
+          outcome: "win",
+          color: POSITION_COLORS.losing,
+        }),
       ),
     );
 
     expect(result.nodesMap.root.outcome).toBe("loss");
-    expect(result.nodesMap.root.color).toBe(POSITION_COLORS.losing);
+    expect(result.nodesMap.root.color).toBe(POSITION_COLORS.certainWin);
     expect(result.stats.ruleHits.rule1).toBe(1);
+    expect(result.stats.ruleHits.rule2).toBe(0);
     expect(result.stats.ruleHits.rule3).toBe(0);
   });
 
-  it("rule 1 overrides an already-persisted win on the parent", () => {
+  it("rule 1 overrides an already-persisted Losing (stored win) parent", () => {
     const result = resolveExploration(
       graph(
         node("root", {
           outcome: "win",
-          color: POSITION_COLORS.certainWin,
+          color: POSITION_COLORS.losing,
           children: ["three"],
         }),
         node("three", {
@@ -101,47 +107,68 @@ describe("resolveExploration", () => {
     );
 
     expect(result.nodesMap.root.outcome).toBe("loss");
-    expect(result.nodesMap.root.color).toBe(POSITION_COLORS.losing);
+    expect(result.nodesMap.root.color).toBe(POSITION_COLORS.certainWin);
     expect(result.stats.ruleHits.rule1).toBe(1);
   });
 
-  it("rule 2 marks the parent losing and keeps the winning child", () => {
+  it("rule 2 makes the parent Losing and deletes other Unanalyzed subtrees", () => {
     const result = resolveExploration(
       graph(
-        node("root", { children: ["winner", "unknown"] }),
-        node("winner", {
-          parentId: "root", outcome: "win", color: POSITION_COLORS.certainWin,
+        node("root", { children: ["certain", "unknown", "decided"] }),
+        node("certain", {
+          parentId: "root",
+          outcome: "loss",
+          color: POSITION_COLORS.certainWin,
         }),
-        node("unknown", { parentId: "root" }),
-      ),
-    );
-
-    expect(result.nodesMap.root.outcome).toBe("loss");
-    expect(result.nodesMap.root.color).toBe(POSITION_COLORS.losing);
-    expect(result.nodesMap.root.children).toEqual(["winner"]);
-    expect(result.removedIds).toEqual(["unknown"]);
-    expect(result.stats.ruleHits.rule2).toBe(1);
-    expect(result.stats.decidedChildrenKept).toBe(1);
-  });
-
-  it("rule 3 records a certain win when every child is losing", () => {
-    const result = resolveExploration(
-      graph(
-        node("root", { children: ["a", "b"] }),
-        node("a", { parentId: "root", outcome: "loss" }),
-        node("b", { parentId: "root", outcome: "loss" }),
+        node("unknown", { parentId: "root", children: ["leaf"] }),
+        node("leaf", { parentId: "unknown" }),
+        node("decided", {
+          parentId: "root",
+          outcome: "win",
+          color: POSITION_COLORS.losing,
+        }),
       ),
     );
 
     expect(result.nodesMap.root.outcome).toBe("win");
-    expect(result.nodesMap.root.color).toBe(POSITION_COLORS.certainWin);
-    expect(result.nodesMap.root.children).toEqual(["a", "b"]);
-    expect(result.removedIds).toEqual([]);
-    expect(result.stats.ruleHits.rule3).toBe(1);
+    expect(result.nodesMap.root.color).toBe(POSITION_COLORS.losing);
+    expect(result.nodesMap.certain).toBeDefined();
+    expect(result.nodesMap.decided).toBeDefined();
+    expect(result.nodesMap.root.children).toEqual(["certain", "decided"]);
+    expect(result.removedIds).toEqual(["unknown", "leaf"]);
+    expect(result.stats.ruleHits.rule2).toBe(1);
+    expect(result.stats.unanalyzedSiblingsPruned).toBe(1);
     expect(result.stats.decidedChildrenKept).toBe(2);
   });
 
-  it("does not mistake a yellow manual note for a proven loss", () => {
+  it("rule 3 records a Certain win for all-Losing children and propagates up", () => {
+    const result = resolveExploration(
+      graph(
+        node("grand", { children: ["root", "unknown"] }),
+        node("root", { parentId: "grand", children: ["a", "b"] }),
+        node("a", {
+          parentId: "root", outcome: "win", color: POSITION_COLORS.losing,
+        }),
+        node("b", {
+          parentId: "root", outcome: "win", color: POSITION_COLORS.losing,
+        }),
+        node("unknown", { parentId: "grand" }),
+      ),
+    );
+
+    expect(result.nodesMap.root.outcome).toBe("loss");
+    expect(result.nodesMap.root.color).toBe(POSITION_COLORS.certainWin);
+    expect(result.nodesMap.root.children).toEqual(["a", "b"]);
+    expect(result.nodesMap.grand.outcome).toBe("win");
+    expect(result.nodesMap.grand.color).toBe(POSITION_COLORS.losing);
+    expect(result.nodesMap.grand.children).toEqual(["root"]);
+    expect(result.removedIds).toEqual(["unknown"]);
+    expect(result.stats.ruleHits.rule3).toBe(1);
+    expect(result.stats.ruleHits.rule2).toBe(1);
+    expect(result.stats.unanalyzedSiblingsPruned).toBe(1);
+  });
+
+  it("does not mistake a yellow manual note for a proven result", () => {
     const result = resolveExploration(
       graph(
         node("root", { children: ["noted"] }),
@@ -164,7 +191,10 @@ describe("resolveExploration", () => {
       graph(
         node("root", { children: ["decided", "other"] }),
         node("decided", {
-          parentId: "root", outcome: "loss", children: ["shared"],
+          parentId: "root",
+          outcome: "win",
+          color: POSITION_COLORS.losing,
+          children: ["shared"],
         }),
         node("other", { parentId: "root", children: ["shared"] }),
         node("shared", { parentId: "decided" }),
@@ -184,7 +214,10 @@ describe("resolveExploration", () => {
       graph(
         node("root", { children: ["decided"] }),
         node("decided", {
-          parentId: "root", outcome: "win", children: ["path"],
+          parentId: "root",
+          outcome: "win",
+          color: POSITION_COLORS.losing,
+          children: ["path"],
         }),
         node("path", { parentId: "decided", children: ["evidence"] }),
         node("evidence", { parentId: "path", outcome: "loss" }),

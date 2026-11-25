@@ -105,8 +105,8 @@ Both move endpoints return:
 
 - `moves` is the **complete** legal move list. `unsafe_moves` are moves that let
   the opponent win with one reply; **`Add legal moves` excludes them before
-  creating any child**. If every legal move is unsafe, the parent is marked
-  `Losing`. **Mark risky moves** only annotates risky children that older
+  creating any child**. If every legal move is unsafe, the parent is stored as
+  `loss` (UI **Certain win**). **Mark risky moves** only annotates risky children that older
   graphs had already created, while **Apply exploration rules** performs the
   deterministic minimax pruning below.
 - `game_over` / `winner` describe decided positions (three in a row).
@@ -163,14 +163,16 @@ alias of the automatic `losing` evaluation colour.
 
 ### A. Position evaluation — automatic (`POSITION_COLORS`)
 
-Describes the position itself, from the node's `currentPlayer` perspective.
-Only the analyser assigns these.
+Stored `outcome` is from the node's `currentPlayer` perspective, but the **UI
+labels are deliberately inverted to the previous mover's perspective**: a
+stored `loss` (side to move is lost) is shown as **Certain win**, and a stored
+`win` is shown as **Losing**. Only the analyser assigns these.
 
 | Color | Meaning | Attached to |
 | --- | --- | --- |
 | `#ffffff` | Unanalyzed | any node |
-| `#0f766e` | **Certain win**: this side can force a win (exploration rule 3) | the evaluated position |
-| `#ffff99` | **Losing**: the opponent can force a win (rule 2), or a three-in-a-row child is present (rule 1, highest priority) | the evaluated position |
+| `#0f766e` | **Certain win**: the player who just moved can force a win (stored `loss`; rule 1 / rule 3) | the evaluated position |
+| `#ffff99` | **Losing**: the player who just moved is lost (stored `win`; rule 2) | the evaluated position |
 | `#285294` | **Decided**: three in a row already on the board; the player who just moved won | the **child** (reached terminal position) — never the parent |
 | `#ff99ff` | No moves: no legal moves and no winner | the node with zero moves |
 | `#ffcc99` | Loop / transposition: this position was reached before | the re-reached node |
@@ -230,21 +232,25 @@ fallback for an unrecognized persisted colour.
 
 ## Exploration rules and the applied migration
 
-The three rules operate on a persisted `outcome` field, always viewed from the
-node's `currentPlayer`:
+The three rules operate on a persisted `outcome` field, always stored from the
+node's `currentPlayer` perspective. **The UI shows the inverse** (previous
+mover): `loss` → **Certain win**, `win` → **Losing**.
 
-1. **Highest priority — a parent with a three-in-a-row child is `loss`.** A
-   legal move that would create three in a row is **not added as a child**; the
-   parent is marked `Losing` immediately. This overrides rule 3, rule 2 and even
-   an already-persisted `win` outcome. A decided three-in-a-row board itself is
-   `loss` for the side to move there.
-2. **A node with any `win` child is `loss`.** The opponent can force a win from
-   there; remove the remaining unknown branches.
-3. **A node whose children are all `loss` is `win`** and is recorded (only when
-   no three-in-a-row child is present).
+1. **Highest priority — a parent with a three-in-a-row child becomes `loss`.**
+   A legal move that would create three in a row is **not added as a child**;
+   the parent is shown as **Certain win** immediately. This overrides rules 2/3
+   and even an already-persisted `win`/`loss` outcome. A decided three-in-a-row
+   board itself is `loss` for the side to move there.
+2. **Any child that is `loss` (UI Certain win) makes its parent `win`**
+   (UI **Losing**). The parent's **other white Unanalyzed children and their
+   entire subtrees are deleted**. This is the requested
+   "Certain win child → Losing parent" propagation.
+3. **A node whose children are ALL `win` (UI Losing) becomes `loss`**
+   (UI **Certain win**). Its parent then becomes `win` via rule 2, and the same
+   sibling pruning applies one level higher.
 
-Decided `win` / `loss` children are **never removed**: they remain reusable for
-transpositions and later exploration. Only unknown branches are pruned, and a
+Decided/evaluated children are **never removed**: they remain reusable for
+transpositions. Only white Unanalyzed sibling subtrees are cut by rule 2, and a
 shared DAG node survives if another parent still references it.
 
 - Live frontend behaviour: `frontend/src/game/exploration.ts` is the pure rule
@@ -261,8 +267,10 @@ python -m backend.exploration --apply      # writes .bak, then the graph
 ```
 
 The agreed seed mapping was old `#285294 = win`, `#ffff99 = loss`,
-`#ff99ff = loss`. New results use `#0f766e` for certain wins and `#ffff99` for
-losses; `#285294` remains reserved for decided boards. `--no-seed` and
+`#ff99ff = loss`. The migration writes `outcome` from `currentPlayer`'s view;
+the current UI intentionally shows the inverse, so `#0f766e` is a stored
+`loss` (UI Certain win) and `#ffff99` is a stored `win` (UI Losing).
+`#285294` remains reserved for decided boards. `--no-seed` and
 `--no-recolor` are available for board-only evaluation or colour-free output.
 
 `backend/data/neutreeko_graph.json` has already been migrated **in place**, with
